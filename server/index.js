@@ -1230,6 +1230,35 @@ const syncDailyLogHandler = async (request, response) => {
   return response.json({ ok: true });
 };
 
+const getUserStateHandler = async (request, response) => {
+  const userId = String(request.query?.userId || '').trim();
+
+  if (!userId) {
+    return response.status(400).json({ message: 'userId is required.' });
+  }
+
+  const store = await readStore();
+  const profile =
+    store.profiles?.[userId] && typeof store.profiles[userId] === 'object' ? store.profiles[userId] : null;
+  const logBucket =
+    store.dailyLogs?.[userId] && typeof store.dailyLogs[userId] === 'object' ? store.dailyLogs[userId] : {};
+  const logs = Object.keys(logBucket)
+    .sort()
+    .map((key) => logBucket[key])
+    .filter(Boolean);
+  const tasks = Array.isArray(store.tasks?.[userId]) ? store.tasks[userId] : [];
+  const bmiHistory = Array.isArray(store.bmi?.[userId]) ? store.bmi[userId] : [];
+
+  return response.json({
+    profile,
+    logs,
+    tasks,
+    bmiHistory,
+  });
+};
+
+app.get('/api/state', getUserStateHandler);
+app.get('/state', getUserStateHandler);
 app.post('/api/sync/profile', syncProfileHandler);
 app.post('/sync/profile', syncProfileHandler);
 app.post('/api/sync/daily-log', syncDailyLogHandler);

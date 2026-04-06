@@ -9,7 +9,7 @@ import { OTPCodeInput } from './OTPCodeInput';
 import { classNames } from '../lib/utils';
 
 interface OTPLoginFormProps {
-  onLogin: (session: UserSession) => void;
+  onLogin: (session: UserSession) => Promise<void>;
 }
 
 export const OTPLoginForm = ({ onLogin }: OTPLoginFormProps) => {
@@ -59,7 +59,7 @@ export const OTPLoginForm = ({ onLogin }: OTPLoginFormProps) => {
 
     try {
       const session = await verifyOtp(identifier.trim(), otp.trim());
-      onLogin(session);
+      await onLogin(session);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Verification failed.');
       setStatusTone('error');

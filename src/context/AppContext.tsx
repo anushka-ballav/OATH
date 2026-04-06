@@ -27,10 +27,13 @@ import {
   fetchTasks as apiFetchTasks,
   updateTask as apiUpdateTask,
 } from '../services/tasks';
-import { syncDailyLogToServer, syncProfileToServer } from '../services/serverSync';
+import {
+  fetchUserStateFromServer,
+  syncDailyLogToServer,
+  syncProfileToServer,
+} from '../services/serverSync';
 import {
   clearCloudData,
-  hydrateRemoteState,
   subscribeToLeaderboard,
   syncDailyLog,
   syncLeaderboardPresence,
@@ -52,7 +55,7 @@ import {
 interface AppContextValue extends AppState {
   isReady: boolean;
   currentLog: DailyLog;
-  login(session: UserSession): void;
+  login(session: UserSession): Promise<void>;
   logout(): void;
   completeOnboarding(payload: Omit<UserProfile, 'userId' | 'dailyTargets'>): Promise<void>;
   updateProfile(profile: Partial<UserProfile>): Promise<void>;
@@ -223,10 +226,75 @@ const isGoalMet = (profile: UserProfile | null, log: DailyLog) => {
   );
 };
 
+const hasMeaningfulLogData = (log: DailyLog) =>
+  Boolean(
+    log.wakeUpTime ||
+      log.studyMinutes ||
+      log.waterIntakeMl ||
+      log.caloriesBurned ||
+      log.caloriesConsumed ||
+      log.completedWorkoutTasks?.length ||
+      log.foodEntries?.length ||
+      log.customWorkoutEntries?.length,
+  );
+
+const buildStreakHistoryFromLogs = (profile: UserProfile | null, logs: DailyLog[]) => {
+  if (!profile) return [];
+
+  let currentStreak = 0;
+
+  return [...logs]
+    .sort((first, second) => first.date.localeCompare(second.date))
+    .reduce<{ date: string; streak: number }[]>((history, log) => {
+      if (!isGoalMet(profile, log)) {
+        currentStreak = 0;
+        return history;
+      }
+
+      currentStreak += 1;
+      history.push({ date: log.date, streak: currentStreak });
+      return history;
+    }, []);
+};
+
+const shouldUseRemoteLogs = (logs: DailyLog[]) => !logs.some(hasMeaningfulLogData);
+
 export const AppProvider = ({ children }: PropsWithChildren) => {
   const [state, setState] = useState<AppState>(initialState);
   const [isReady, setIsReady] = useState(false);
   const [currentDayKey, setCurrentDayKey] = useState(todayKey());
+
+  const hydrateSessionState = async (baseState: AppState) => {
+    const userId = baseState.session?.userId;
+
+    if (!userId) {
+      return normalizeState(baseState);
+    }
+
+    try {
+      const remoteState = await fetchUserStateFromServer(userId);
+      const nextProfile = baseState.profile ?? remoteState.profile ?? null;
+      const nextLogs =
+        shouldUseRemoteLogs(baseState.logs) && remoteState.logs.length ? remoteState.logs : baseState.logs;
+      const nextTasks = baseState.tasks.length ? baseState.tasks : remoteState.tasks;
+      const nextBmiHistory = baseState.bmiHistory.length ? baseState.bmiHistory : remoteState.bmiHistory;
+      const nextStreakHistory =
+        baseState.streakHistory.length || !nextProfile
+          ? baseState.streakHistory
+          : buildStreakHistoryFromLogs(nextProfile, nextLogs);
+
+      return normalizeState({
+        ...baseState,
+        profile: nextProfile,
+        logs: nextLogs,
+        tasks: nextTasks,
+        bmiHistory: nextBmiHistory,
+        streakHistory: nextStreakHistory,
+      });
+    } catch {
+      return normalizeState(baseState);
+    }
+  };
 
   useEffect(() => {
     const boot = async () => {
@@ -237,8 +305,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         ...globalState,
         ...userState,
       });
-      const hydrated = await hydrateRemoteState(localState);
-      setState(normalizeState(hydrated));
+      const hydrated = await hydrateSessionState(localState);
+      setState(hydrated);
       setIsReady(true);
     };
 
@@ -417,17 +485,21 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     ...state,
     isReady,
     currentLog,
-    login(session) {
+    async login(session) {
       const savedUserState = loadUserState(session.userId);
+      setIsReady(false);
 
-      setState((prev) =>
+      const nextState = await hydrateSessionState(
         normalizeState({
           ...initialState,
           ...savedUserState,
           session,
-          darkMode: prev.darkMode,
+          darkMode: state.darkMode,
         }),
       );
+
+      setState(nextState);
+      setIsReady(true);
     },
     logout() {
       clearGlobalState();

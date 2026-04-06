@@ -1,4 +1,4 @@
-import { DailyLog, UserProfile, UserSession } from '../types';
+import { BMIEntry, DailyLog, TaskItem, UserProfile, UserSession } from '../types';
 
 const safePost = async (path: string, body: unknown) => {
   try {
@@ -37,4 +37,33 @@ export const syncDailyLogToServer = async (session: UserSession, profile: UserPr
     date: log.date,
     log,
   });
+};
+
+export const fetchUserStateFromServer = async (userId: string): Promise<{
+  profile: UserProfile | null;
+  logs: DailyLog[];
+  tasks: TaskItem[];
+  bmiHistory: BMIEntry[];
+}> => {
+  const response = await fetch(`/api/state?userId=${encodeURIComponent(userId)}`);
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        profile?: UserProfile | null;
+        logs?: DailyLog[];
+        tasks?: TaskItem[];
+        bmiHistory?: BMIEntry[];
+        message?: string;
+      }
+    | null;
+
+  if (!response.ok) {
+    throw new Error(payload?.message || 'Unable to load saved account data.');
+  }
+
+  return {
+    profile: payload?.profile ?? null,
+    logs: Array.isArray(payload?.logs) ? payload.logs : [],
+    tasks: Array.isArray(payload?.tasks) ? payload.tasks : [],
+    bmiHistory: Array.isArray(payload?.bmiHistory) ? payload.bmiHistory : [],
+  };
 };
