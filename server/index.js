@@ -21,32 +21,97 @@ const port = Number(process.env.PORT || process.env.OTP_SERVER_PORT || 8787);
 const otpStore = new Map();
 const refreshEnv = () => dotenv.config({ path: envPath, override: true });
 const isGroqConfigured = () => Boolean(process.env.GROQ_API_KEY);
+const isBrevoConfigured = () => Boolean(process.env.BREVO_API_KEY);
 const isResendConfigured = () => Boolean(process.env.RESEND_API_KEY);
 const isGmailConfigured = () => Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS);
-const isSmtpConfigured = () => Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
-// Prefer Resend in production because many hosts block outbound SMTP ports. Allow override via EMAIL_PROVIDER.
+const getBrevoBaseUrl = () =>
+  String(process.env.BREVO_BASE_URL || 'https://api.brevo.com/v3')
+    .trim()
+    .replace(/\/+$/, '');
+const parseBooleanEnv = (value) => {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) return null;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return null;
+};
+const isDemoOtpEnabled = () => {
+  const explicit = parseBooleanEnv(process.env.ALLOW_DEMO_OTP);
+  if (explicit !== null) return explicit;
+  return String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production';
+};
+// Prefer Brevo's API when configured. Allow override via EMAIL_PROVIDER.
 const getEmailProvider = () => {
   const forced = String(process.env.EMAIL_PROVIDER || '').trim().toLowerCase();
 
   if (forced) {
-    if (forced === 'resend') return isResendConfigured() ? 'resend' : 'none';
-    if (forced === 'gmail') return isGmailConfigured() ? 'gmail' : 'none';
-    if (forced === 'smtp') return isSmtpConfigured() ? 'smtp' : 'none';
+    const forcedProvider =
+      forced === 'brevo'
+        ? isBrevoConfigured()
+          ? 'brevo'
+          : ''
+        : forced === 'resend'
+          ? isResendConfigured()
+            ? 'resend'
+            : ''
+          : forced === 'gmail'
+            ? isGmailConfigured()
+              ? 'gmail'
+              : ''
+            : '';
+
+    if (forcedProvider) {
+      return forcedProvider;
+    }
+
     if (forced === 'none' || forced === 'demo') return 'none';
   }
 
+  if (isBrevoConfigured()) return 'brevo';
   if (isResendConfigured()) return 'resend';
   if (isGmailConfigured()) return 'gmail';
-  if (isSmtpConfigured()) return 'smtp';
   return 'none';
 };
-const getEmailSender = () =>
-  process.env.RESEND_FROM ||
-  process.env.EMAIL_FROM ||
-  process.env.SMTP_FROM ||
-  process.env.EMAIL_USER ||
-  process.env.SMTP_USER ||
-  'OATH <onboarding@resend.dev>';
+const getEmailSender = () => {
+  const configuredSender = [
+    process.env.BREVO_FROM,
+    process.env.RESEND_FROM,
+    process.env.EMAIL_FROM,
+    process.env.EMAIL_USER,
+  ]
+    .map((value) => String(value || '').trim())
+    .find(Boolean);
+
+  if (configuredSender) {
+    return configuredSender;
+  }
+
+  return 'OATH <onboarding@resend.dev>';
+};
+const getBrevoSender = () => {
+  const rawSender = String(getEmailSender() || '').trim();
+  const namedMatch = rawSender.match(/^(.*?)\s*<([^<>]+)>$/);
+
+  if (namedMatch) {
+    const name = namedMatch[1].trim().replace(/^"|"$/g, '');
+    const email = namedMatch[2].trim();
+
+    if (email) {
+      return name ? { name, email } : { email };
+    }
+  }
+
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rawSender)) {
+    return { email: rawSender };
+  }
+
+  const error = new Error('Brevo sender is not fully configured. Set BREVO_FROM or EMAIL_FROM to a verified sender email.');
+  error.code = 'BREVO_SENDER_ERROR';
+  throw error;
+};
 const getGroqModel = (kind = 'general') =>
   process.env[kind === 'vision' ? 'GROQ_VISION_MODEL' : 'GROQ_MODEL'] ||
   process.env.GROQ_MODEL ||
@@ -67,18 +132,6 @@ const createTransporter = (provider = getEmailProvider()) => {
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
-      },
-    });
-  }
-
-  if (provider === 'smtp' && isSmtpConfigured()) {
-    return nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: String(process.env.SMTP_SECURE || 'false') === 'true',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
       },
     });
   }
@@ -276,10 +329,62 @@ const buildOtpEmailHtml = (code) => `
   </div>
 `;
 
-const sendOtpWithSmtp = async ({ identifier, code, transporter }) =>
+const sendOtpWithTransporter = async ({ identifier, code, transporter }) =>
   transporter.sendMail({
     from: getEmailSender(),
     to: identifier,
+    subject: 'Your OATH OTP Code',
+    text: buildOtpEmailText(code),
+    html: buildOtpEmailHtml(code),
+  });
+
+const sendBrevoMessage = async ({ identifier, subject, text, html }) => {
+  const apiKey = String(process.env.BREVO_API_KEY || '').trim();
+
+  if (!apiKey) {
+    const error = new Error('Brevo is not fully configured. Add BREVO_API_KEY.');
+    error.code = 'BREVO_CONFIG_ERROR';
+    throw error;
+  }
+
+  const payload = {
+    sender: getBrevoSender(),
+    to: [{ email: identifier }],
+    subject,
+    ...(html ? { htmlContent: html } : {}),
+    ...(!html && text ? { textContent: text } : {}),
+  };
+
+  const brevoResponse = await fetch(`${getBrevoBaseUrl()}/smtp/email`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'api-key': apiKey,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const rawPayload = await brevoResponse.text().catch(() => '');
+  const parsedPayload = safeJsonParse(rawPayload);
+
+  if (!brevoResponse.ok) {
+    const detail =
+      parsedPayload?.message ||
+      parsedPayload?.code ||
+      rawPayload ||
+      `Brevo email request failed with status ${brevoResponse.status}.`;
+    const error = new Error(detail);
+    error.code = brevoResponse.status === 401 ? 'BREVO_AUTH_ERROR' : 'BREVO_API_ERROR';
+    throw error;
+  }
+
+  return parsedPayload || rawPayload;
+};
+
+const sendOtpWithBrevo = async ({ identifier, code }) =>
+  sendBrevoMessage({
+    identifier,
     subject: 'Your OATH OTP Code',
     text: buildOtpEmailText(code),
     html: buildOtpEmailHtml(code),
@@ -585,34 +690,51 @@ const sendReminderWithResend = async ({ identifier, subject, text, html }) => {
   return payload;
 };
 
+const sendReminderWithBrevo = async ({ identifier, subject, text, html }) =>
+  sendBrevoMessage({
+    identifier,
+    subject,
+    text,
+    html,
+  });
+
 const getEmailErrorDetail = (error, provider) => {
   const errorCode = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+
+  if (provider === 'brevo') {
+    return error instanceof Error ? error.message : 'Failed to send email through Brevo.';
+  }
 
   if (provider === 'resend') {
     return error instanceof Error ? error.message : 'Failed to send OTP email through Resend.';
   }
 
   if (errorCode === 'EAUTH') {
-    return 'SMTP authentication failed. Verify your Gmail App Password, 2-Step Verification, and SMTP sender settings.';
+    return 'Gmail authentication failed. Verify your Gmail App Password, 2-Step Verification, and sender settings.';
   }
 
   if (errorCode === 'ETIMEDOUT' || errorCode === 'ESOCKET' || errorCode === 'ECONNECTION') {
-    return 'SMTP connection failed. Use a cloud-friendly email API like Resend or verify your SMTP provider allows this host.';
+    return 'Gmail connection failed. Use Brevo or Resend for hosted deployments, or verify Gmail allows this host.';
   }
 
-  return 'Failed to send OTP email from the SMTP provider.';
+  return 'Failed to send OTP email from the configured provider.';
 };
 
 const buildOtp = () => `${Math.floor(100000 + Math.random() * 900000)}`;
+const buildDemoOtpMessage = ({ reason }) =>
+  reason === 'delivery-failed'
+    ? 'Email delivery is unavailable right now. Use the demo OTP shown below.'
+    : 'No live email provider is configured. Use the demo OTP shown below.';
 
 app.get('/api/health', (_request, response) => {
   refreshEnv();
   response.json({
     ok: true,
+    brevoConfigured: isBrevoConfigured(),
     resendConfigured: isResendConfigured(),
     gmailConfigured: isGmailConfigured(),
-    smtpConfigured: isSmtpConfigured(),
     emailProvider: getEmailProvider(),
+    demoOtpEnabled: isDemoOtpEnabled(),
     groqConfigured: isGroqConfigured(),
     sender: getEmailProvider() === 'none' ? null : getEmailSender(),
     taskReminderTimezone: getReminderTimeZone(),
@@ -770,19 +892,36 @@ const sendOtpHandler = async (request, response) => {
   refreshEnv();
   const identifier = String(request.body?.identifier || '').trim().toLowerCase();
   const emailProvider = getEmailProvider();
-  const transporter =
-    emailProvider === 'smtp' || emailProvider === 'gmail' ? createTransporter(emailProvider) : null;
+  const transporter = emailProvider === 'gmail' ? createTransporter(emailProvider) : null;
 
   if (!identifier || !identifier.includes('@')) {
     return response.status(400).json({ message: 'A valid email address is required.' });
   }
 
-  if (emailProvider === 'none') {
-    return response.status(503).json({ message: 'No email OTP provider is configured.' });
-  }
-
   const code = buildOtp();
   const expiresAt = Date.now() + 10 * 60 * 1000;
+  const respondWithDemoOtp = (reason, detail) => {
+    otpStore.set(identifier, {
+      code,
+      expiresAt,
+    });
+
+    return response.json({
+      sent: true,
+      provider: 'demo',
+      code,
+      detail,
+      message: buildDemoOtpMessage({ reason }),
+    });
+  };
+
+  if (emailProvider === 'none') {
+    if (isDemoOtpEnabled()) {
+      return respondWithDemoOtp('not-configured');
+    }
+
+    return response.status(503).json({ message: 'No email OTP provider is configured.' });
+  }
 
   otpStore.set(identifier, {
     code,
@@ -790,22 +929,34 @@ const sendOtpHandler = async (request, response) => {
   });
 
   try {
-    if (emailProvider === 'resend') {
+    if (emailProvider === 'brevo') {
+      await sendOtpWithBrevo({ identifier, code });
+    } else if (emailProvider === 'resend') {
       await sendOtpWithResend({ identifier, code });
     } else if (transporter) {
-      await sendOtpWithSmtp({ identifier, code, transporter });
+      await sendOtpWithTransporter({ identifier, code, transporter });
     }
 
     return response.json({
       sent: true,
       provider: emailProvider,
-      message: emailProvider === 'resend' ? 'OTP sent to your email through Resend.' : 'OTP sent to your email.',
+      message:
+        emailProvider === 'brevo'
+          ? 'OTP sent to your email through Brevo.'
+          : emailProvider === 'resend'
+            ? 'OTP sent to your email through Resend.'
+            : 'OTP sent to your email.',
     });
   } catch (error) {
     console.error('Failed to send OTP email', error);
-    otpStore.delete(identifier);
     const errorCode = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
     const detail = getEmailErrorDetail(error, emailProvider);
+
+    if (isDemoOtpEnabled()) {
+      return respondWithDemoOtp('delivery-failed', detail);
+    }
+
+    otpStore.delete(identifier);
 
     return response.status(500).json({
       message: 'Failed to send OTP email.',
@@ -2034,6 +2185,10 @@ const sendTaskReminderEmail = async ({ identifier, name, tasks, goalStatus, tran
   const text = buildReminderEmailText({ name, tasks: safeTasks, goalStatus });
   const html = buildReminderEmailHtml({ name, tasks: safeTasks, appUrl, goalStatus });
 
+  if (provider === 'brevo') {
+    return sendReminderWithBrevo({ identifier, subject, text, html });
+  }
+
   if (provider === 'resend') {
     return sendReminderWithResend({ identifier, subject, text, html });
   }
@@ -2062,7 +2217,7 @@ const runTaskReminderJob = async () => {
 
   const today = toDateKey();
   const store = await readStore();
-  const transporter = provider === 'resend' ? null : createTransporter(provider);
+  const transporter = provider === 'gmail' ? createTransporter(provider) : null;
 
   const candidateUserIds = new Set([
     ...Object.keys(store.users || {}),

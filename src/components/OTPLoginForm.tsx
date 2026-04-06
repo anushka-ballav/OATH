@@ -97,7 +97,7 @@ export const OTPLoginForm = ({ onLogin }: OTPLoginFormProps) => {
           <h1 className="font-display text-3xl">Discipline AI Tracker</h1>
         </div>
         <p className="muted-text text-sm">
-          Secure your routine with email OTP login. SMTP delivery works when configured, and safe demo mode still works out of the box.
+          Secure your routine with email OTP login. Email delivery works when configured, and demo mode still keeps the app usable.
         </p>
       </div>
 

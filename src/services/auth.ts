@@ -30,7 +30,8 @@ export const sendOtp = async (identifier: string) => {
     if (response.ok) {
       const payload = (await response.json().catch(() => null)) as
         | {
-            provider?: 'resend' | 'smtp';
+            code?: string;
+            provider?: 'brevo' | 'resend' | 'gmail' | 'demo';
             message?: string;
           }
         | null;
@@ -44,13 +45,15 @@ export const sendOtp = async (identifier: string) => {
       );
 
       return {
-        code: '',
+        code: typeof payload?.code === 'string' ? payload.code : '',
         provider: 'email-otp' as const,
         message:
           payload?.message ||
-          (payload?.provider === 'resend'
-            ? 'OTP sent to your email through Resend.'
-            : 'OTP sent to your email.'),
+          (payload?.provider === 'brevo'
+            ? 'OTP sent to your email through Brevo.'
+            : payload?.provider === 'resend'
+              ? 'OTP sent to your email through Resend.'
+              : 'OTP sent to your email.'),
       };
     }
 
@@ -68,7 +71,7 @@ export const sendOtp = async (identifier: string) => {
     }
   }
 
-  const code = '123456';
+  const code = `${Math.floor(100000 + Math.random() * 900000)}`;
 
   window.localStorage.setItem(
     OTP_KEY,
@@ -85,7 +88,7 @@ export const sendOtp = async (identifier: string) => {
     provider: isFirebaseConfigured ? 'firebase-auth' : 'simulated-otp',
     message: isFirebaseConfigured
       ? 'Firebase config found. Email OTP is running in safe local simulation mode until a live provider is wired.'
-      : 'SMTP is not configured. Use the demo OTP 123456.',
+      : 'No live email provider is configured. Use the demo OTP shown below.',
   };
 };
 
@@ -128,7 +131,7 @@ export const verifyOtp = async (identifier: string, code: string): Promise<UserS
   }
 
   if (pending.code !== code) {
-    throw new Error('Invalid OTP. Use 123456 in demo mode.');
+    throw new Error('Invalid OTP. Use the demo code shown above.');
   }
 
   return {
