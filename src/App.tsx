@@ -1,5 +1,5 @@
+import { CSSProperties, useEffect, useMemo, useState } from 'react';
 import { MoonStar, SunMedium } from 'lucide-react';
-import { useState } from 'react';
 import { BottomNav } from './components/BottomNav';
 import { BrandLogo } from './components/BrandLogo';
 import { LoadingSkeleton } from './components/LoadingSkeleton';
@@ -24,9 +24,32 @@ const getInitialTab = (): AppTab => {
 
 const SIDEBAR_COLLAPSED_KEY = 'oath-sidebar-collapsed';
 
+const readViewport = () => ({
+  width: window.innerWidth,
+  height: window.innerHeight,
+});
+
+const getViewportShellMetrics = (viewportWidth: number, viewportHeight: number, collapsed: boolean) => {
+  const safeWidth = Math.max(360, viewportWidth);
+  const safeHeight = Math.max(640, viewportHeight);
+  const horizontalGutter = safeWidth >= 1800 ? 40 : safeWidth >= 1536 ? 32 : safeWidth >= 1280 ? 24 : 0;
+  const maxWidth = Math.min(2200, Math.max(0, safeWidth - horizontalGutter * 2));
+  const sidebarWidth = collapsed ? 108 : Math.min(360, Math.max(280, Math.round(maxWidth * 0.18)));
+  const gridGap = safeWidth >= 1800 ? 36 : safeWidth >= 1536 ? 32 : 24;
+  const contentMinHeight = Math.max(720, safeHeight - (safeWidth >= 1536 ? 48 : 32));
+
+  return {
+    maxWidth,
+    sidebarWidth,
+    gridGap,
+    contentMinHeight,
+  };
+};
+
 const App = () => {
   const { isReady, session, profile, login, completeOnboarding, darkMode, toggleDarkMode, logout } = useApp();
   const [tab, setTab] = useState<AppTab>(() => getInitialTab());
+  const [viewport, setViewport] = useState(() => readViewport());
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     try {
       return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
@@ -49,13 +72,51 @@ const App = () => {
     });
   };
 
+  useEffect(() => {
+    const handleResize = () => {
+      setViewport(readViewport());
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const shellMetrics = useMemo(
+    () => getViewportShellMetrics(viewport.width, viewport.height, isSidebarCollapsed),
+    [isSidebarCollapsed, viewport.height, viewport.width],
+  );
+  const mainStyle = useMemo<CSSProperties>(
+    () => ({
+      maxWidth: `${shellMetrics.maxWidth}px`,
+    }),
+    [shellMetrics.maxWidth],
+  );
+  const desktopGridStyle = useMemo<CSSProperties | undefined>(() => {
+    if (viewport.width < 1280) return undefined;
+
+    return {
+      gridTemplateColumns: `${shellMetrics.sidebarWidth}px minmax(0, 1fr)`,
+      gap: `${shellMetrics.gridGap}px`,
+    };
+  }, [shellMetrics.gridGap, shellMetrics.sidebarWidth, viewport.width]);
+  const contentStyle = useMemo<CSSProperties | undefined>(() => {
+    if (viewport.width < 1280) return undefined;
+
+    return {
+      minHeight: `${shellMetrics.contentMinHeight}px`,
+    };
+  }, [shellMetrics.contentMinHeight, viewport.width]);
+
   if (!isReady) {
     return <LoadingSkeleton />;
   }
 
   if (!session) {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-[1920px] items-center justify-center px-4 py-6 sm:px-6 lg:px-8 2xl:px-10">
+      <main
+        className="mx-auto flex min-h-dvh w-full items-center justify-center px-4 py-6 sm:px-6 lg:px-8 2xl:px-10"
+        style={mainStyle}
+      >
         <OTPLoginForm onLogin={login} />
       </main>
     );
@@ -63,21 +124,26 @@ const App = () => {
 
   if (!profile) {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-[1920px] items-center justify-center px-4 py-6 sm:px-6 lg:px-8 2xl:px-10">
+      <main
+        className="mx-auto flex min-h-dvh w-full items-center justify-center px-4 py-6 sm:px-6 lg:px-8 2xl:px-10"
+        style={mainStyle}
+      >
         <OnboardingForm onSubmit={completeOnboarding} />
       </main>
     );
   }
 
   return (
-    <main className="mx-auto min-h-dvh w-full max-w-[1920px] px-3 py-4 sm:px-5 sm:py-5 lg:px-6 xl:px-8 2xl:px-10">
+    <main
+      className="mx-auto min-h-dvh w-full px-3 py-4 sm:px-5 sm:py-5 lg:px-6 xl:px-8 2xl:px-10"
+      style={mainStyle}
+    >
       <div
         className={classNames(
-          'xl:grid xl:gap-8',
-          isSidebarCollapsed
-            ? 'xl:grid-cols-[108px_minmax(0,1fr)]'
-            : 'xl:grid-cols-[clamp(280px,18vw,336px)_minmax(0,1fr)]',
+          'xl:grid',
+          isSidebarCollapsed ? 'xl:grid-cols-[108px_minmax(0,1fr)]' : 'xl:grid-cols-[280px_minmax(0,1fr)]',
         )}
+        style={desktopGridStyle}
       >
         <div className="hidden xl:block">
           <SidebarNav
@@ -93,7 +159,7 @@ const App = () => {
           />
         </div>
 
-        <section className="min-w-0 pb-32 sm:pb-36 xl:min-h-[calc(100dvh-4rem)] xl:pb-10">
+        <section className="min-w-0 pb-32 sm:pb-36 xl:pb-10" style={contentStyle}>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between xl:hidden">
             <BrandLogo compact className="w-full sm:w-auto" />
             <button
