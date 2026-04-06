@@ -237,10 +237,10 @@ export const TasksCard = ({
 
   return (
     <CardShell className="relative overflow-hidden rounded-[28px] border border-orange-400/20 bg-transparent">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm uppercase tracking-[0.24em] text-black dark:text-orange-100">Tasks</p>
-          <h3 className="mt-2 font-display text-2xl text-black dark:text-zinc-50">Today&apos;s checklist</h3>
+          <h3 className="mt-2 font-display text-xl text-black dark:text-zinc-50 sm:text-2xl">Today&apos;s checklist</h3>
           <p className="muted-text mt-2 text-sm">Create tasks, tick them off, and get an 8 PM reminder email for anything unfinished.</p>
         </div>
         <div className="soft-surface inline-flex h-12 w-12 items-center justify-center rounded-2xl text-orange-400">
@@ -248,10 +248,10 @@ export const TasksCard = ({
         </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-4 rounded-3xl border border-orange-400/10 bg-white/60 p-4 shadow-inner dark:bg-white/5">
+      <div className="mt-4 flex flex-col gap-4 rounded-3xl border border-orange-400/10 bg-white/60 p-4 shadow-inner dark:bg-white/5 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-black/60 dark:text-orange-100/70">Progress</p>
-          <p className="mt-2 font-display text-3xl text-black dark:text-zinc-50">
+          <p className="mt-2 font-display text-2xl text-black dark:text-zinc-50 sm:text-3xl">
             {checklistTotals.done} / {checklistTotals.total || (goalsProgress ? 3 : 1)}
           </p>
           <p className="muted-text mt-1 text-sm">
@@ -384,7 +384,7 @@ export const TasksCard = ({
         <button
           type="submit"
           disabled={busy}
-          className="btn-glow inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 font-semibold text-white transition hover:bg-orange-600 active:scale-[0.99] disabled:opacity-60"
+          className="btn-glow inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 font-semibold text-white transition hover:bg-orange-600 active:scale-[0.99] disabled:opacity-60 sm:w-auto"
         >
           <Plus size={18} />
           Add
@@ -398,7 +398,7 @@ export const TasksCard = ({
             const isOverdue = task.dueDate < today && !task.completed;
 
             return (
-              <div key={task.id} className="soft-surface flex items-start justify-between gap-3 rounded-2xl px-4 py-3">
+              <div key={task.id} className="soft-surface flex flex-col gap-3 rounded-2xl px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
                 <button
                   type="button"
                   onClick={() => void onToggle(task.id)}
@@ -425,7 +425,7 @@ export const TasksCard = ({
                 <button
                   type="button"
                   onClick={() => void onDelete(task.id)}
-                  className="soft-surface panel-hover btn-glow inline-flex h-10 w-10 items-center justify-center rounded-2xl text-orange-100/80 active:scale-[0.99]"
+                  className="soft-surface panel-hover btn-glow inline-flex h-10 w-10 items-center justify-center self-start rounded-2xl text-orange-100/80 active:scale-[0.99] sm:self-auto"
                   aria-label="Delete task"
                 >
                   <Trash2 size={16} />

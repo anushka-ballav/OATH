@@ -111,7 +111,7 @@ const PodiumCard = ({ entry }: { entry: RankedEntry }) => (
     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500/90 via-amber-400/85 to-sky-500/80 text-lg font-bold text-white">
       #{entry.rank}
     </div>
-    <p className="mt-4 font-display text-2xl text-black">{entry.displayName}</p>
+    <p className="mt-4 font-display text-xl text-black sm:text-2xl">{entry.displayName}</p>
     <div className="mt-2 flex items-center justify-center gap-2">
       <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getLeagueTone(entry.league)}`}>
         {entry.league}
@@ -173,7 +173,7 @@ const LeaderboardRow = ({
         <BadgeRow badges={entry.badges} />
       </div>
 
-      <div className="shrink-0 rounded-[22px] border border-orange-400/20 bg-white/60 px-4 py-3 text-right dark:bg-white/5">
+      <div className="w-full rounded-[22px] border border-orange-400/20 bg-white/60 px-4 py-3 text-left dark:bg-white/5 sm:w-auto sm:text-right">
         <p className="text-sm uppercase tracking-[0.18em] text-black/65 dark:text-orange-100/75">
           {tone === 'friend' ? 'Rival Score' : 'Season XP'}
         </p>
@@ -210,7 +210,7 @@ const MetricCard = ({
       <div className="rounded-2xl bg-blue-100 p-3 text-black">{icon}</div>
       <div>
         <p className="text-sm uppercase tracking-[0.22em] text-black">{label}</p>
-        <p className="text-2xl font-semibold text-black">{value}</p>
+        <p className="text-xl font-semibold text-black sm:text-2xl">{value}</p>
         <p className="muted-text mt-1 text-xs">{hint}</p>
       </div>
     </div>
@@ -419,12 +419,12 @@ export const LeaderboardPage = () => {
   }
 
   return (
-    <div className="space-y-5 pb-28">
+    <div className="space-y-5 pb-32 sm:pb-28">
       <header className="glass hero-glow rounded-[32px] border border-orange-400/20 p-5 shadow-card">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-3xl">
             <p className="text-sm uppercase tracking-[0.24em] text-black">Gamified Leaderboard</p>
-            <h1 className="mt-2 font-display text-3xl text-black sm:text-4xl">
+            <h1 className="mt-2 font-display text-2xl text-black sm:text-4xl">
               Turn your routine into a rivalry arena
             </h1>
             <p className="muted-text mt-3 text-sm sm:text-base">
@@ -482,7 +482,7 @@ export const LeaderboardPage = () => {
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.22em] text-black">Incoming Challenge</p>
-              <h2 className="mt-2 font-display text-2xl text-black">
+              <h2 className="mt-2 font-display text-xl text-black sm:text-2xl">
                 {invitePreview.inviterName} invited you into their rivalry board
               </h2>
               <p className="muted-text mt-2 text-sm">
@@ -495,7 +495,7 @@ export const LeaderboardPage = () => {
                 type="button"
                 onClick={handleAcceptInvite}
                 disabled={!invitePreview.canJoin || isAcceptingInvite}
-                className="btn-glow rounded-2xl bg-gradient-to-r from-sky-500 to-blue-500 px-5 py-3 font-semibold text-white transition hover:brightness-105 disabled:opacity-60"
+                className="btn-glow w-full rounded-2xl bg-gradient-to-r from-sky-500 to-blue-500 px-5 py-3 font-semibold text-white transition hover:brightness-105 disabled:opacity-60 sm:w-auto"
               >
                 {isAcceptingInvite ? 'Joining...' : invitePreview.alreadyFriends ? 'Already Joined' : 'Join Rivalry'}
               </button>
@@ -505,7 +505,7 @@ export const LeaderboardPage = () => {
                   clearInviteFromUrl();
                   setInvitePreview(null);
                 }}
-                className="soft-surface rounded-2xl px-5 py-3 font-semibold text-black"
+                className="soft-surface w-full rounded-2xl px-5 py-3 font-semibold text-black sm:w-auto"
               >
                 Dismiss
               </button>
@@ -528,12 +528,12 @@ export const LeaderboardPage = () => {
 
       <div className="grid gap-5 xl:grid-cols-[1.1fr,0.9fr]">
         <CardShell>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-black">Global Podium</p>
               <p className="muted-text mt-1 text-sm">Top players based on rolling season XP and streak bonuses.</p>
             </div>
-            <span className="rounded-full border border-orange-400/25 bg-orange-500/15 px-3 py-1 text-xs font-semibold text-orange-100">
+            <span className="self-start rounded-full border border-orange-400/25 bg-orange-500/15 px-3 py-1 text-xs font-semibold text-orange-100 sm:self-auto">
               Live ranking
             </span>
           </div>
@@ -548,7 +548,7 @@ export const LeaderboardPage = () => {
         </CardShell>
 
         <CardShell>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="rounded-2xl bg-blue-100 p-3 text-black">
               <Gift size={18} />
             </div>
@@ -561,12 +561,12 @@ export const LeaderboardPage = () => {
           </div>
 
           <div className="mt-5 rounded-[24px] border border-orange-400/20 bg-white/60 p-4 dark:bg-white/5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-orange-100/70">Current Level</p>
                 <p className="mt-2 text-3xl font-semibold text-black">Lv {yourEntry?.level || 1}</p>
               </div>
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-orange-100/70">Next Reward</p>
                 <p className="mt-2 text-lg font-semibold text-black">
                   {yourEntry?.xpToNextLevel || LEADERBOARD_LEVEL_FALLBACK} XP left
@@ -599,7 +599,7 @@ export const LeaderboardPage = () => {
 
       <div className="grid gap-5 xl:grid-cols-[0.95fr,1.05fr]">
         <CardShell>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-black">Invite A Friend</p>
               <p className="muted-text mt-1 text-sm">
@@ -662,7 +662,7 @@ export const LeaderboardPage = () => {
         </CardShell>
 
         <CardShell>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="rounded-2xl bg-blue-100 p-3 text-black">
               <ShieldCheck size={18} />
             </div>
@@ -713,12 +713,12 @@ export const LeaderboardPage = () => {
 
       <div className="grid gap-5 xl:grid-cols-2">
         <CardShell>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-black">Friend Rivalries</p>
               <p className="muted-text mt-1 text-sm">Private board for people who joined through your invite flow.</p>
             </div>
-            <span className="rounded-full border border-sky-300/25 bg-sky-500/15 px-3 py-1 text-xs font-semibold text-sky-100">
+            <span className="self-start rounded-full border border-sky-300/25 bg-sky-500/15 px-3 py-1 text-xs font-semibold text-sky-100 sm:self-auto">
               {rankedFriends.length} rivals
             </span>
           </div>
@@ -737,12 +737,12 @@ export const LeaderboardPage = () => {
         </CardShell>
 
         <CardShell>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-black">Global Arena</p>
               <p className="muted-text mt-1 text-sm">Everyone who has synced activity is ranked here automatically.</p>
             </div>
-            <span className="rounded-full border border-orange-400/25 bg-orange-500/15 px-3 py-1 text-xs font-semibold text-orange-100">
+            <span className="self-start rounded-full border border-orange-400/25 bg-orange-500/15 px-3 py-1 text-xs font-semibold text-orange-100 sm:self-auto">
               {rankedGlobal.filter((entry) => entry.isOnline).length} online
             </span>
           </div>

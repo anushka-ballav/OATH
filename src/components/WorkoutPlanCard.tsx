@@ -99,10 +99,10 @@ export const WorkoutPlanCard = ({
 
   return (
     <CardShell className="hero-glow overflow-hidden bg-gradient-to-br from-orange-50 via-white to-amber-100 dark:from-[#140f0a] dark:via-[#0c0c0c] dark:to-[#1b1208]">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm uppercase tracking-[0.24em] text-black">Today's Workout</p>
-          <h3 className="mt-2 font-display text-2xl">{workoutPlan.title}</h3>
+          <h3 className="mt-2 font-display text-xl sm:text-2xl">{workoutPlan.title}</h3>
           <p className="muted-text mt-3 text-sm">{workoutPlan.summary}</p>
         </div>
         <div className="rounded-2xl bg-orange-100 p-3 text-black dark:bg-orange-500/15 dark:text-orange-100">
@@ -133,7 +133,7 @@ export const WorkoutPlanCard = ({
       </div>
 
       <div className="mt-5">
-        <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.22em] text-black/60 dark:text-orange-100/70">
+        <div className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-black/60 dark:text-orange-100/70 sm:flex-row sm:items-center sm:justify-between">
           <span>Completion</span>
           <span>
             {completedCount}/{workoutPlan.dailyChecklist.length} • {workoutCompletion}%
@@ -168,7 +168,7 @@ export const WorkoutPlanCard = ({
               <span className="grid h-10 w-10 place-items-center rounded-2xl bg-white/10 text-orange-200 dark:bg-orange-500/15">
                 <TaskIcon size={18} />
               </span>
-              <span className="flex-1 text-sm font-medium text-black">{task.label}</span>
+              <span className="min-w-0 flex-1 text-sm font-medium text-black">{task.label}</span>
               <span className={checked ? 'check-pop' : undefined}>
                 {checked ? <CheckCircle2 size={20} /> : <Circle size={20} />}
               </span>
@@ -200,7 +200,7 @@ export const WorkoutPlanCard = ({
       </div>
 
       <div className="mt-5 rounded-2xl border border-orange-200/60 bg-white/70 px-4 py-4 dark:border-orange-400/25 dark:bg-orange-500/10">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.2em] text-black">Custom Workout Add</p>
             <p className="muted-text mt-2 text-sm">
@@ -251,7 +251,7 @@ export const WorkoutPlanCard = ({
           <button
             type="submit"
             disabled={savingCustomWorkout}
-            className="btn-glow h-[52px] rounded-2xl bg-gradient-to-r from-orange-500 to-amber-400 px-5 font-semibold text-black transition hover:brightness-105 disabled:opacity-60"
+            className="btn-glow h-[52px] w-full rounded-2xl bg-gradient-to-r from-orange-500 to-amber-400 px-5 font-semibold text-black transition hover:brightness-105 disabled:opacity-60 xl:w-auto"
           >
             <span className="inline-flex items-center gap-2">
               <Plus size={18} />

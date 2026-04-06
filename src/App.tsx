@@ -93,13 +93,13 @@ const App = () => {
           />
         </div>
 
-        <section className="min-w-0 pb-40 sm:pb-36 xl:pb-10">
-          <div className="mb-4 flex items-center justify-between gap-4 xl:hidden">
-            <BrandLogo compact />
+        <section className="min-w-0 pb-32 sm:pb-36 xl:pb-10">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between xl:hidden">
+            <BrandLogo compact className="w-full sm:w-auto" />
             <button
               type="button"
               onClick={toggleDarkMode}
-              className="soft-surface panel-hover rounded-2xl border border-blue-100 px-4 py-3 text-sm font-semibold text-black dark:border-orange-400/30 dark:bg-orange-500/15 dark:text-orange-100"
+              className="soft-surface panel-hover flex w-full items-center justify-center rounded-2xl border border-blue-100 px-4 py-3 text-sm font-semibold text-black dark:border-orange-400/30 dark:bg-orange-500/15 dark:text-orange-100 sm:w-auto"
             >
               <span className="inline-flex items-center gap-2">
                 {darkMode ? <SunMedium size={16} /> : <MoonStar size={16} />}

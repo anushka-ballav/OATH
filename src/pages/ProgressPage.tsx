@@ -89,18 +89,18 @@ export const ProgressPage = () => {
   }, [currentLog.studyMinutes, profile]);
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="space-y-5 pb-28 sm:pb-24">
       <header className="glass rounded-[32px] border border-blue-100 p-5 shadow-card">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-black">Progress Dashboard</p>
-            <h1 className="mt-2 font-display text-3xl">{range === 'daily' ? 'Today' : range === 'monthly' ? 'Monthly' : 'Weekly'} insight</h1>
+            <h1 className="mt-2 font-display text-2xl sm:text-3xl">{range === 'daily' ? 'Today' : range === 'monthly' ? 'Monthly' : 'Weekly'} insight</h1>
             <p className="muted-text mt-2 text-sm">
               Tasks, calories, water, and study with smooth visual trends.
             </p>
           </div>
 
-          <label className="soft-surface inline-flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-black dark:text-orange-100">
+          <label className="soft-surface inline-flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-black dark:text-orange-100 sm:w-auto sm:justify-start">
             <span className="muted-text text-xs uppercase tracking-[0.24em]">Range</span>
             <select
               value={range}
@@ -133,7 +133,7 @@ export const ProgressPage = () => {
             <h3 className="font-display text-xl">{range === 'daily' ? 'Today' : 'Trend'} overview</h3>
           </div>
         </div>
-        <div className="h-64" key={`tasks-${range}`}>
+        <div className="h-56 sm:h-64" key={`tasks-${range}`}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={taskSeries}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
@@ -155,7 +155,7 @@ export const ProgressPage = () => {
             <h3 className="font-display text-xl">{range === 'daily' ? 'Today' : 'Trend'} overview</h3>
           </div>
         </div>
-        <div className="h-64" key={`calories-${range}`}>
+        <div className="h-56 sm:h-64" key={`calories-${range}`}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={caloriesSeries}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />

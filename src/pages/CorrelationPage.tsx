@@ -7,15 +7,15 @@ export const CorrelationPage = () => {
   const { logs, streakHistory, profile } = useApp();
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="space-y-5 pb-28 sm:pb-24">
       <header className="glass hero-glow rounded-[32px] border border-orange-400/20 p-5 shadow-card">
-        <div className="flex items-start gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
           <div className="rounded-2xl bg-blue-100 p-3 text-black">
             <TrendingUp size={18} />
           </div>
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-black">Correlation Lab</p>
-            <h1 className="mt-2 font-display text-3xl text-black">Habit correlation with streak growth</h1>
+            <h1 className="mt-2 font-display text-2xl text-black sm:text-3xl">Habit correlation with streak growth</h1>
             <p className="muted-text mt-2 max-w-3xl text-sm">
               This page studies your saved streak history and compares it with study time, hydration, workout
               completion, calories burned, and wake-up timing to surface the habits most connected to stronger runs.

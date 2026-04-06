@@ -94,9 +94,9 @@ export const OTPLoginForm = ({ onLogin }: OTPLoginFormProps) => {
         </div>
         <div>
           <p className="text-sm uppercase tracking-[0.24em] text-clay dark:text-orange-200">Welcome Back</p>
-          <h1 className="font-display text-3xl">Discipline AI Tracker</h1>
+          <h1 className="font-display text-2xl sm:text-3xl">Discipline AI Tracker</h1>
         </div>
-        <p className="muted-text text-sm">
+        <p className="muted-text text-sm sm:text-base">
           Secure your routine with email OTP login. Email delivery works when configured, and demo mode still keeps the app usable.
         </p>
       </div>
@@ -165,7 +165,7 @@ export const OTPLoginForm = ({ onLogin }: OTPLoginFormProps) => {
                 type="button"
                 onClick={() => void handleResend()}
                 disabled={loading || cooldown > 0}
-                className="soft-surface panel-hover btn-glow rounded-2xl px-4 py-3 text-sm font-semibold text-black transition active:scale-[0.99] disabled:opacity-60 dark:text-orange-100"
+                className="soft-surface panel-hover btn-glow w-full rounded-2xl px-4 py-3 text-sm font-semibold text-black transition active:scale-[0.99] disabled:opacity-60 dark:text-orange-100"
               >
                 {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend OTP'}
               </button>

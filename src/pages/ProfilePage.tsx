@@ -51,12 +51,12 @@ export const ProfilePage = () => {
   };
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="space-y-5 pb-28 sm:pb-24">
       <header className="glass rounded-[32px] border border-blue-100 p-5 shadow-card">
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-black">Profile</p>
-            <h1 className="mt-2 font-display text-3xl">{profile.name}</h1>
+            <h1 className="mt-2 font-display text-2xl sm:text-3xl">{profile.name}</h1>
             <p className="muted-text mt-2 text-sm">{session.identifier}</p>
           </div>
           <div className="soft-surface rounded-2xl p-3">
@@ -149,7 +149,7 @@ export const ProfilePage = () => {
       </CardShell>
 
       <CardShell>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-black">Notifications</p>
             <p className="muted-text mt-2 text-sm">Choose when each reminder should alert you and turn any reminder on or off.</p>
@@ -157,7 +157,7 @@ export const ProfilePage = () => {
           <button
             type="button"
             onClick={() => void requestNotificationPermission()}
-            className="rounded-2xl bg-blue-50 px-4 py-3 text-sm font-semibold text-black"
+            className="w-full rounded-2xl bg-blue-50 px-4 py-3 text-sm font-semibold text-black sm:w-auto"
           >
             Ask browser
           </button>

@@ -105,15 +105,15 @@ export const AICompanionPage = () => {
   };
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="space-y-5 pb-28 sm:pb-24">
       <header className="glass rounded-[32px] border border-blue-100 p-5 shadow-card">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="rounded-2xl bg-blue-100 p-3 text-black">
             <Bot size={18} />
           </div>
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-black">AI Companion</p>
-            <h1 className="mt-1 font-display text-3xl">Your daily guide</h1>
+            <h1 className="mt-1 font-display text-2xl sm:text-3xl">Your daily guide</h1>
           </div>
         </div>
         <p className="muted-text mt-3 text-sm">
@@ -175,7 +175,7 @@ export const AICompanionPage = () => {
           {status}
         </div>
 
-        <form className="mt-4 flex gap-3" onSubmit={handleSubmit}>
+        <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={handleSubmit}>
           <input
             value={message}
             onChange={(event) => setMessage(event.target.value)}
@@ -185,7 +185,7 @@ export const AICompanionPage = () => {
           <button
             type="submit"
             disabled={loading}
-            className="rounded-2xl bg-blue-100 px-4 py-3 text-black disabled:opacity-60"
+            className="flex w-full items-center justify-center rounded-2xl bg-blue-100 px-4 py-3 text-black disabled:opacity-60 sm:w-auto"
           >
             <SendHorizonal size={18} />
           </button>

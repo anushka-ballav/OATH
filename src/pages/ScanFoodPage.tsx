@@ -143,24 +143,24 @@ export const ScanFoodPage = () => {
   };
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="space-y-5 pb-28 sm:pb-24">
       <header className="glass rounded-[32px] border border-blue-100 p-5 shadow-card">
         <p className="text-sm uppercase tracking-[0.24em] text-black">Food Recognition</p>
-        <h1 className="mt-2 font-display text-3xl">Scan your meals</h1>
+        <h1 className="mt-2 font-display text-2xl sm:text-3xl">Scan your meals</h1>
         <p className="muted-text mt-2 text-sm">
           Review the guess before it is added. If the result is wrong, retry once and then use manual entry.
         </p>
       </header>
 
       <CardShell>
-        <label className="flex cursor-pointer flex-col items-center justify-center rounded-[28px] border border-dashed border-blue-200 bg-white px-6 py-10 text-center text-black">
+        <label className="flex cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-blue-200 bg-white px-6 py-10 text-center text-black sm:rounded-[28px]">
           <Camera size={32} />
-          <p className="mt-4 font-display text-2xl">Scan Food</p>
+          <p className="mt-4 font-display text-xl sm:text-2xl">Scan Food</p>
           <p className="muted-text mt-2 text-sm">Tap to upload a food image</p>
           <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
         </label>
 
-        {preview && <img src={preview} alt="Food preview" className="mt-5 h-64 w-full rounded-[24px] object-cover" />}
+        {preview && <img src={preview} alt="Food preview" className="mt-5 h-48 w-full rounded-[24px] object-cover sm:h-64" />}
 
         <div className="soft-surface mt-5 rounded-2xl px-4 py-4 text-sm">
           <div className="flex items-center gap-2 font-medium">
@@ -172,23 +172,23 @@ export const ScanFoodPage = () => {
         {pendingEntry && !loading && (
           <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
             <p className="text-sm uppercase tracking-[0.2em] text-black">Current Guess</p>
-            <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-lg font-semibold">{pendingEntry.name}</p>
                 <p className="text-sm text-black">{pendingEntry.calories} kcal</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex w-full gap-2 sm:w-auto">
                 <button
                   type="button"
                   onClick={() => void handleDone()}
-                  className="rounded-2xl bg-blue-100 px-4 py-2 text-sm font-semibold text-black"
+                  className="flex-1 rounded-2xl bg-blue-100 px-4 py-2 text-sm font-semibold text-black sm:flex-none"
                 >
                   Done
                 </button>
                 <button
                   type="button"
                   onClick={() => void handleRetry()}
-                  className="rounded-2xl border border-blue-200 px-4 py-2 text-sm font-semibold text-black"
+                  className="flex-1 rounded-2xl border border-blue-200 px-4 py-2 text-sm font-semibold text-black sm:flex-none"
                 >
                   Retry
                 </button>
@@ -248,7 +248,7 @@ export const ScanFoodPage = () => {
             <button
               type="button"
               onClick={() => void handleManualAdd()}
-              className="mt-3 rounded-2xl bg-blue-100 px-4 py-3 font-semibold text-black"
+              className="mt-3 w-full rounded-2xl bg-blue-100 px-4 py-3 font-semibold text-black"
             >
               Add manual food
             </button>
@@ -259,7 +259,7 @@ export const ScanFoodPage = () => {
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <CardShell>
           <p className="text-sm uppercase tracking-[0.24em] text-black">Today's Nutrition</p>
-          <h2 className="mt-2 font-display text-3xl">{currentLog.caloriesConsumed} kcal</h2>
+          <h2 className="mt-2 font-display text-2xl sm:text-3xl">{currentLog.caloriesConsumed} kcal</h2>
           <p className="muted-text mt-2 text-sm">{remainingCalories} kcal remaining for the day.</p>
 
           {profile ? (
@@ -275,8 +275,8 @@ export const ScanFoodPage = () => {
             {currentLog.foodEntries.length ? (
               currentLog.foodEntries.map((entry) => (
                 <div key={entry.id} className="soft-surface rounded-2xl px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
                       <p className="font-medium">{entry.name}</p>
                       <p className="muted-text text-sm">{entry.imageName ?? 'Uploaded meal'}</p>
                       <p className="muted-text mt-1 text-xs">
@@ -284,7 +284,7 @@ export const ScanFoodPage = () => {
                         {formatG(entry.sugarG)}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
                       <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-black">
                         {entry.calories} kcal
                       </span>

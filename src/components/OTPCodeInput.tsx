@@ -61,7 +61,7 @@ export const OTPCodeInput = ({
   };
 
   return (
-    <div className="flex items-center justify-between gap-2">
+    <div className="grid grid-cols-6 gap-1.5 sm:gap-2">
       {digits.map((digit, index) => (
         <input
           key={index}
@@ -109,7 +109,7 @@ export const OTPCodeInput = ({
           }}
           onFocus={(event) => event.currentTarget.select()}
           className={classNames(
-            'h-14 w-12 rounded-2xl border text-center text-lg font-semibold outline-none transition',
+            'h-12 w-full min-w-0 rounded-2xl border text-center text-base font-semibold outline-none transition sm:h-14 sm:text-lg',
             'border-slate-300 bg-white text-black focus:border-clay focus:ring-2 focus:ring-blue-100',
             'dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50 dark:focus:ring-orange-500/20',
             disabled ? 'opacity-60' : 'hover:-translate-y-0.5',
@@ -119,4 +119,3 @@ export const OTPCodeInput = ({
     </div>
   );
 };
-

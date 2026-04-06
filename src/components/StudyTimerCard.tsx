@@ -138,7 +138,7 @@ export const StudyTimerCard = ({ onSave, todayMinutes = 0, goalMinutes = 0 }: St
 
   return (
     <CardShell className="relative overflow-hidden rounded-[28px] border border-orange-400/20 bg-transparent">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm uppercase tracking-[0.24em] text-black">Study Timer</p>
           <p className="muted-text mt-2 text-sm">
@@ -151,8 +151,10 @@ export const StudyTimerCard = ({ onSave, todayMinutes = 0, goalMinutes = 0 }: St
       </div>
 
       <div className="mt-6 flex flex-col items-center justify-center">
-        <div className="font-display text-6xl tabular-nums">{formatTimerDisplay(elapsedSeconds)}</div>
-        <p className="muted-text mt-3 text-sm">{isRunning ? 'Session running' : elapsedSeconds ? 'Paused' : 'Ready to focus'}</p>
+        <div className="font-display text-4xl tabular-nums sm:text-6xl">{formatTimerDisplay(elapsedSeconds)}</div>
+        <p className="muted-text mt-3 text-center text-sm">
+          {isRunning ? 'Session running' : elapsedSeconds ? 'Paused' : 'Ready to focus'}
+        </p>
       </div>
 
       <button

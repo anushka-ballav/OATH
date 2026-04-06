@@ -168,9 +168,9 @@ export const HomePage = () => {
   const caloriesConsumedPercent = percent(currentLog.caloriesConsumed, profile.dailyTargets.calories);
 
   return (
-    <div className="page-enter space-y-5 pb-24">
+    <div className="page-enter space-y-5 pb-28 sm:pb-24">
       <header className="space-y-4">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="mt-1 flex flex-wrap items-center gap-2 font-display text-2xl font-semibold uppercase tracking-[0.18em] sm:text-3xl">
               <span className="text-black/70 dark:text-orange-100/70">{getGreeting().toUpperCase()},</span>
@@ -185,7 +185,7 @@ export const HomePage = () => {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 self-start sm:self-auto">
             <button
               type="button"
               onClick={() => void requestNotificationPermission()}
@@ -208,7 +208,7 @@ export const HomePage = () => {
         <div className="grid gap-4 lg:grid-cols-2">
           <div style={enterDelay(0)}>
             <CardShell className="relative overflow-hidden rounded-[28px] border border-orange-400/20 bg-transparent">
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
                 <ProgressRing value={dailyProgressPercent} />
                 <div>
                   <p className="font-display text-xl">{progressHeadline}</p>
@@ -289,7 +289,7 @@ export const HomePage = () => {
 
         <div style={enterDelay(400)}>
           <CardShell className="relative overflow-hidden rounded-[28px] border border-orange-400/20 bg-transparent">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-black">Calories</p>
               <p className="muted-text mt-2 text-sm">
@@ -320,7 +320,7 @@ export const HomePage = () => {
             <ProgressBar value={caloriesConsumedPercent} colorClass="bg-gradient-to-r from-orange-500 via-amber-400 to-blue-500" />
           </div>
 
-          <div className="mt-4 flex items-end gap-3">
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
             <label className="flex-1">
               <span className="mb-2 block text-sm font-medium text-black">Add manual burned calories</span>
               <input
@@ -340,7 +340,7 @@ export const HomePage = () => {
                 void addCaloriesBurned(amount);
                 setCaloriesBurnedInput(0);
               }}
-              className="btn-glow h-[52px] shrink-0 rounded-2xl bg-orange-500 px-5 font-semibold text-white transition hover:bg-orange-600 active:scale-[0.99]"
+              className="btn-glow h-[52px] w-full rounded-2xl bg-orange-500 px-5 font-semibold text-white transition hover:bg-orange-600 active:scale-[0.99] sm:w-auto sm:shrink-0"
             >
               Add
             </button>
@@ -403,7 +403,7 @@ export const HomePage = () => {
 
       <div style={enterDelay(880)}>
       <CardShell>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-black">Reminders</p>
             <h3 className="mt-2 font-display text-2xl">Daily notifications</h3>
@@ -411,7 +411,7 @@ export const HomePage = () => {
           <button
             type="button"
             onClick={() => void requestNotificationPermission()}
-            className="soft-surface panel-hover flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-black"
+            className="soft-surface panel-hover flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-black sm:w-auto"
           >
             <Bell size={18} />
             Enable
@@ -420,13 +420,13 @@ export const HomePage = () => {
 
         <div className="mt-4 space-y-3">
           {notifications.map((item) => (
-            <div key={item.id} className="soft-surface flex items-center justify-between rounded-2xl px-4 py-3">
+            <div key={item.id} className="soft-surface flex flex-col gap-3 rounded-2xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-medium">{item.label}</p>
                 <p className="muted-text text-sm">{item.time}</p>
               </div>
               <span
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                className={`self-start rounded-full px-3 py-1 text-xs font-semibold sm:self-auto ${
                   item.enabled ? 'bg-blue-100 text-black' : 'bg-blue-50 text-black'
                 }`}
               >

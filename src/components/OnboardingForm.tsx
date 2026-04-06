@@ -37,7 +37,7 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
       <div className="mb-6">
         <BrandLogo />
         <p className="text-sm uppercase tracking-[0.24em] text-ink/75 dark:text-orange-200">First-Time Setup</p>
-        <h2 className="font-display text-3xl">Build your discipline blueprint</h2>
+        <h2 className="font-display text-2xl sm:text-3xl">Build your discipline blueprint</h2>
         <p className="muted-text mt-2 text-sm">
           We'll create a simple daily plan for workouts, study, hydration, and calorie balance.
         </p>
