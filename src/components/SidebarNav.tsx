@@ -49,7 +49,7 @@ export const SidebarNav = ({
 }) => (
   <aside
     className={classNames(
-      'glass sticky top-6 rounded-[32px] border border-white/60 shadow-card transition-[padding,width] duration-300 dark:border-orange-400/30',
+      'glass sticky top-4 max-h-[calc(100dvh-2rem)] min-h-[calc(100dvh-2rem)] overflow-y-auto rounded-[32px] border border-white/60 shadow-card transition-[padding,width] duration-300 dark:border-orange-400/30 2xl:top-6 2xl:max-h-[calc(100dvh-3rem)] 2xl:min-h-[calc(100dvh-3rem)]',
       collapsed ? 'px-3 py-4' : 'p-5',
     )}
   >

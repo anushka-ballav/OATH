@@ -126,53 +126,57 @@ export const ProgressPage = () => {
         </div>
       </CardShell>
 
-      <CardShell>
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.24em] text-black">Tasks Completed vs Pending</p>
-            <h3 className="font-display text-xl">{range === 'daily' ? 'Today' : 'Trend'} overview</h3>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <CardShell>
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-black">Tasks Completed vs Pending</p>
+              <h3 className="font-display text-xl">{range === 'daily' ? 'Today' : 'Trend'} overview</h3>
+            </div>
           </div>
-        </div>
-        <div className="h-56 sm:h-64" key={`tasks-${range}`}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={taskSeries}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
-              <XAxis dataKey="day" stroke="currentColor" tick={{ fill: 'currentColor', fontSize: 12 }} />
-              <YAxis stroke="currentColor" tick={{ fill: 'currentColor', fontSize: 12 }} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="completed" stackId="a" fill="#34d399" radius={[10, 10, 0, 0]} isAnimationActive />
-              <Bar dataKey="pending" stackId="a" fill="#fb923c" radius={[10, 10, 0, 0]} isAnimationActive />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </CardShell>
-
-      <CardShell>
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.24em] text-black">Calories Intake vs Burn</p>
-            <h3 className="font-display text-xl">{range === 'daily' ? 'Today' : 'Trend'} overview</h3>
+          <div className="h-56 sm:h-64 xl:h-72" key={`tasks-${range}`}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={taskSeries}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
+                <XAxis dataKey="day" stroke="currentColor" tick={{ fill: 'currentColor', fontSize: 12 }} />
+                <YAxis stroke="currentColor" tick={{ fill: 'currentColor', fontSize: 12 }} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="completed" stackId="a" fill="#34d399" radius={[10, 10, 0, 0]} isAnimationActive />
+                <Bar dataKey="pending" stackId="a" fill="#fb923c" radius={[10, 10, 0, 0]} isAnimationActive />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-        </div>
-        <div className="h-56 sm:h-64" key={`calories-${range}`}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={caloriesSeries}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
-              <XAxis dataKey="day" stroke="currentColor" tick={{ fill: 'currentColor', fontSize: 12 }} />
-              <YAxis stroke="currentColor" tick={{ fill: 'currentColor', fontSize: 12 }} />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="consumed" stroke="#fb923c" strokeWidth={3} dot={{ r: 3 }} isAnimationActive />
-              <Line type="monotone" dataKey="burned" stroke="#34d399" strokeWidth={3} dot={{ r: 3 }} isAnimationActive />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </CardShell>
+        </CardShell>
 
-      <WeeklyChart title="Study Hours" data={buildSeries('studyMinutes')} color="#1d7f82" />
-      <WeeklyChart title="Water Intake (L)" data={buildSeries('waterIntakeMl')} color="#0ea5e9" />
-      <WeeklyChart title="Calories Consumed" data={buildSeries('caloriesConsumed')} color="#4d7b58" />
+        <CardShell>
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-black">Calories Intake vs Burn</p>
+              <h3 className="font-display text-xl">{range === 'daily' ? 'Today' : 'Trend'} overview</h3>
+            </div>
+          </div>
+          <div className="h-56 sm:h-64 xl:h-72" key={`calories-${range}`}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={caloriesSeries}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
+                <XAxis dataKey="day" stroke="currentColor" tick={{ fill: 'currentColor', fontSize: 12 }} />
+                <YAxis stroke="currentColor" tick={{ fill: 'currentColor', fontSize: 12 }} />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="consumed" stroke="#fb923c" strokeWidth={3} dot={{ r: 3 }} isAnimationActive />
+                <Line type="monotone" dataKey="burned" stroke="#34d399" strokeWidth={3} dot={{ r: 3 }} isAnimationActive />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardShell>
+      </div>
+
+      <div className="grid gap-5 2xl:grid-cols-3">
+        <WeeklyChart title="Study Hours" data={buildSeries('studyMinutes')} color="#1d7f82" />
+        <WeeklyChart title="Water Intake (L)" data={buildSeries('waterIntakeMl')} color="#0ea5e9" />
+        <WeeklyChart title="Calories Consumed" data={buildSeries('caloriesConsumed')} color="#4d7b58" />
+      </div>
 
       <CardShell>
         <p className="text-sm uppercase tracking-[0.24em] text-black">Streak History</p>

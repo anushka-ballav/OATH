@@ -205,7 +205,7 @@ export const HomePage = () => {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[1.15fr_0.85fr]">
           <div style={enterDelay(0)}>
             <CardShell className="relative overflow-hidden rounded-[28px] border border-orange-400/20 bg-transparent">
               <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
@@ -252,7 +252,7 @@ export const HomePage = () => {
         </div>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[0.95fr_1.05fr]">
         <div style={enterDelay(160)}>
           <WakeUpCard
             wakeUpTime={currentLog.wakeUpTime}
@@ -275,7 +275,7 @@ export const HomePage = () => {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[0.9fr_1.1fr]">
         <div style={enterDelay(320)}>
           <WaterTrackerCard
             currentMl={currentLog.waterIntakeMl}
@@ -397,45 +397,47 @@ export const HomePage = () => {
         />
       </div>
 
-      <div style={enterDelay(800)}>
-        <WeeklyChart title="Study Hours" data={weeklyStudyData} color="#1d7f82" />
-      </div>
-
-      <div style={enterDelay(880)}>
-      <CardShell>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.24em] text-black">Reminders</p>
-            <h3 className="mt-2 font-display text-2xl">Daily notifications</h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => void requestNotificationPermission()}
-            className="soft-surface panel-hover flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-black sm:w-auto"
-          >
-            <Bell size={18} />
-            Enable
-          </button>
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <div style={enterDelay(800)}>
+          <WeeklyChart title="Study Hours" data={weeklyStudyData} color="#1d7f82" />
         </div>
 
-        <div className="mt-4 space-y-3">
-          {notifications.map((item) => (
-            <div key={item.id} className="soft-surface flex flex-col gap-3 rounded-2xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div style={enterDelay(880)}>
+          <CardShell className="h-full">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="font-medium">{item.label}</p>
-                <p className="muted-text text-sm">{item.time}</p>
+                <p className="text-sm uppercase tracking-[0.24em] text-black">Reminders</p>
+                <h3 className="mt-2 font-display text-2xl">Daily notifications</h3>
               </div>
-              <span
-                className={`self-start rounded-full px-3 py-1 text-xs font-semibold sm:self-auto ${
-                  item.enabled ? 'bg-blue-100 text-black' : 'bg-blue-50 text-black'
-                }`}
+              <button
+                type="button"
+                onClick={() => void requestNotificationPermission()}
+                className="soft-surface panel-hover flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-black sm:w-auto"
               >
-                {item.enabled ? 'On' : 'Off'}
-              </span>
+                <Bell size={18} />
+                Enable
+              </button>
             </div>
-          ))}
+
+            <div className="mt-4 space-y-3">
+              {notifications.map((item) => (
+                <div key={item.id} className="soft-surface flex flex-col gap-3 rounded-2xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-medium">{item.label}</p>
+                    <p className="muted-text text-sm">{item.time}</p>
+                  </div>
+                  <span
+                    className={`self-start rounded-full px-3 py-1 text-xs font-semibold sm:self-auto ${
+                      item.enabled ? 'bg-blue-100 text-black' : 'bg-blue-50 text-black'
+                    }`}
+                  >
+                    {item.enabled ? 'On' : 'Off'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardShell>
         </div>
-      </CardShell>
       </div>
     </div>
   );

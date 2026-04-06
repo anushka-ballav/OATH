@@ -55,7 +55,7 @@ const App = () => {
 
   if (!session) {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-screen-2xl items-center justify-center px-4 py-6 sm:px-6 lg:px-8">
+      <main className="mx-auto flex min-h-dvh w-full max-w-[1920px] items-center justify-center px-4 py-6 sm:px-6 lg:px-8 2xl:px-10">
         <OTPLoginForm onLogin={login} />
       </main>
     );
@@ -63,20 +63,20 @@ const App = () => {
 
   if (!profile) {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-screen-2xl items-center justify-center px-4 py-6 sm:px-6 lg:px-8">
+      <main className="mx-auto flex min-h-dvh w-full max-w-[1920px] items-center justify-center px-4 py-6 sm:px-6 lg:px-8 2xl:px-10">
         <OnboardingForm onSubmit={completeOnboarding} />
       </main>
     );
   }
 
   return (
-    <main className="mx-auto min-h-dvh w-full max-w-screen-2xl px-3 py-4 sm:px-5 sm:py-5 lg:px-8">
+    <main className="mx-auto min-h-dvh w-full max-w-[1920px] px-3 py-4 sm:px-5 sm:py-5 lg:px-6 xl:px-8 2xl:px-10">
       <div
         className={classNames(
-          'xl:grid xl:gap-6',
+          'xl:grid xl:gap-8',
           isSidebarCollapsed
-            ? 'xl:grid-cols-[96px_minmax(0,1fr)]'
-            : 'xl:grid-cols-[280px_minmax(0,1fr)]',
+            ? 'xl:grid-cols-[108px_minmax(0,1fr)]'
+            : 'xl:grid-cols-[clamp(280px,18vw,336px)_minmax(0,1fr)]',
         )}
       >
         <div className="hidden xl:block">
@@ -93,7 +93,7 @@ const App = () => {
           />
         </div>
 
-        <section className="min-w-0 pb-32 sm:pb-36 xl:pb-10">
+        <section className="min-w-0 pb-32 sm:pb-36 xl:min-h-[calc(100dvh-4rem)] xl:pb-10">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between xl:hidden">
             <BrandLogo compact className="w-full sm:w-auto" />
             <button

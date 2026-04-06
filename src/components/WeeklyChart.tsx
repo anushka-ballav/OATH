@@ -24,7 +24,7 @@ export const WeeklyChart = ({ title, data, color }: WeeklyChartProps) => (
       </div>
     </div>
 
-    <div className="h-52 sm:h-60">
+    <div className="h-52 sm:h-60 xl:h-72">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
