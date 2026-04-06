@@ -65,6 +65,7 @@ EMAIL_FROM=OATH <your_email@gmail.com>
 6. If you want the hosted app to stay usable without a live email provider, enable demo OTP fallback:
 
 ```env
+EMAIL_PROVIDER=demo
 ALLOW_DEMO_OTP=true
 ```
 
