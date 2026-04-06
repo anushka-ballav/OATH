@@ -42,7 +42,7 @@ cp .env.example .env
 EMAIL_PROVIDER=gmail
 EMAIL_USER=your_email@gmail.com
 EMAIL_PASS=your_app_password
-EMAIL_FROM=OKRA <your_email@gmail.com>
+EMAIL_FROM=OATH <your_email@gmail.com>
 ```
 
 4. For hosted deployments (Render commonly blocks SMTP), prefer Resend email API:
@@ -50,7 +50,7 @@ EMAIL_FROM=OKRA <your_email@gmail.com>
 ```env
 EMAIL_PROVIDER=resend
 RESEND_API_KEY=your-resend-api-key
-RESEND_FROM=OKRA <your-verified-sender@yourdomain.com>
+RESEND_FROM=OATH <your-verified-sender@yourdomain.com>
 ```
 
 5. Task reminder emails run daily at 8 PM by default (time zone is configurable):
