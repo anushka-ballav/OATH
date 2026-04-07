@@ -2580,13 +2580,27 @@ app.post('/api/bmi', createBmiHandler);
 app.post('/bmi', createBmiHandler);
 
 const statsHandler = async (request, response) => {
-  const userId = String(request.query?.userId || '').trim();
+  const providedUserId = String(request.query?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.query?.identifier);
   const range = String(request.query?.range || 'weekly').trim().toLowerCase();
   const days = range === 'daily' ? 1 : range === 'monthly' ? 30 : 7;
 
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  if (!providedUserId && !identifier) {
+    return response.status(400).json({ message: 'userId or identifier is required.' });
+  }
 
-  const store = await readStore();
+  const initialStore = await readStore();
+  const userId = resolveCanonicalUserId(initialStore, providedUserId, identifier);
+  if (!userId) return response.status(404).json({ message: 'Account not found.' });
+
+  let store = initialStore;
+  if (providedUserId && providedUserId !== userId) {
+    await updateStore((mutableStore) => {
+      mergeUserDataIntoCanonical(mutableStore, providedUserId, userId);
+    });
+    store = await readStore();
+  }
+
   const tasks = Array.isArray(store.tasks[userId]) ? store.tasks[userId] : [];
   const history = Array.isArray(store.bmi[userId]) ? store.bmi[userId] : [];
 
@@ -2597,10 +2611,27 @@ const statsHandler = async (request, response) => {
     return toDateKey(date);
   });
 
+  const lastDateKey = dateKeys[dateKeys.length - 1];
+  const completedDateKey = (isoString) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return '';
+    return toDateKey(date);
+  };
+
   const taskSeries = dateKeys.map((key) => {
-    const dueToday = tasks.filter((task) => task?.dueDate === key);
-    const completed = dueToday.filter((task) => task?.completed).length;
-    const pending = dueToday.filter((task) => !task?.completed).length;
+    const completed = tasks.filter((task) => {
+      if (!task?.completed) return false;
+      const completedOn = completedDateKey(task.completedAt);
+      return completedOn ? completedOn === key : task?.dueDate === key;
+    }).length;
+    const pending = tasks.filter((task) => {
+      if (task?.completed || !task?.dueDate) return false;
+      if (key === lastDateKey) {
+        return task.dueDate <= key;
+      }
+      return task.dueDate === key;
+    }).length;
     return { day: key.slice(5), completed, pending };
   });
 

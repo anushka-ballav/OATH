@@ -8,17 +8,39 @@ interface OnboardingFormProps {
   onSubmit: (payload: Omit<UserProfile, 'userId' | 'dailyTargets'>) => Promise<void>;
 }
 
+const sanitizeIntegerInput = (value: string) => {
+  const digits = String(value || '').replace(/\D+/g, '');
+  if (!digits) return '';
+  return digits.replace(/^0+(?=\d)/, '');
+};
+
+const sanitizeDecimalInput = (value: string) => {
+  const cleaned = String(value || '').replace(/[^0-9.]/g, '');
+  const [whole = '', ...fractionParts] = cleaned.split('.');
+  const normalizedWhole = whole.replace(/^0+(?=\d)/, '');
+  const fraction = fractionParts.join('');
+
+  if (!cleaned) return '';
+  if (!fractionParts.length) return normalizedWhole || '0';
+  return `${normalizedWhole || '0'}.${fraction}`;
+};
+
+const parseNumberInput = (value: string, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     name: '',
     gender: readPreferredGender(),
-    age: 21,
-    height: 170,
-    weight: 70,
+    age: '21',
+    height: '170',
+    weight: '70',
     goal: 'Maintain' as UserProfile['goal'],
-    dailyStudyHours: 3,
-    dailyWorkoutMinutes: 45,
+    dailyStudyHours: '3',
+    dailyWorkoutMinutes: '45',
   });
 
   const handleSubmit = async (event: FormEvent) => {
@@ -27,15 +49,17 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
 
     try {
       savePreferredGender(form.gender);
-      const dailyStudyHours = Number.isFinite(form.dailyStudyHours)
-        ? Math.min(10, Math.max(1, form.dailyStudyHours))
-        : 3;
-      const dailyWorkoutMinutes = Number.isFinite(form.dailyWorkoutMinutes)
-        ? Math.min(180, Math.max(15, Math.round(form.dailyWorkoutMinutes)))
-        : 45;
+      const age = Math.min(90, Math.max(10, Math.round(parseNumberInput(form.age, 21))));
+      const height = Math.min(240, Math.max(100, Math.round(parseNumberInput(form.height, 170))));
+      const weight = Math.min(200, Math.max(30, Math.round(parseNumberInput(form.weight, 70))));
+      const dailyStudyHours = Math.min(10, Math.max(1, parseNumberInput(form.dailyStudyHours, 3)));
+      const dailyWorkoutMinutes = Math.min(180, Math.max(15, Math.round(parseNumberInput(form.dailyWorkoutMinutes, 45))));
       const dailyAvailableHours = Math.min(12, Math.max(1, dailyStudyHours + dailyWorkoutMinutes / 60));
       await onSubmit({
         ...form,
+        age,
+        height,
+        weight,
         dailyStudyHours,
         dailyWorkoutMinutes,
         dailyAvailableHours,
@@ -89,11 +113,12 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
         <label>
           <span className="mb-2 block text-sm font-medium">Age</span>
           <input
-            type="number"
+            type="text"
+            inputMode="numeric"
             min={10}
             max={90}
             value={form.age}
-            onChange={(event) => setForm((prev) => ({ ...prev, age: Number(event.target.value) }))}
+            onChange={(event) => setForm((prev) => ({ ...prev, age: sanitizeIntegerInput(event.target.value) }))}
             className="w-full rounded-2xl border border-black/10 bg-white/80 px-4 py-3 outline-none focus:border-clay dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50"
           />
         </label>
@@ -101,13 +126,14 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
         <label>
           <span className="mb-2 block text-sm font-medium">Daily study time (hours)</span>
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             min={1}
             max={10}
             step={0.5}
             value={form.dailyStudyHours}
             onChange={(event) =>
-              setForm((prev) => ({ ...prev, dailyStudyHours: Number(event.target.value) }))
+              setForm((prev) => ({ ...prev, dailyStudyHours: sanitizeDecimalInput(event.target.value) }))
             }
             className="w-full rounded-2xl border border-black/10 bg-white/80 px-4 py-3 outline-none focus:border-clay dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50"
           />
@@ -116,12 +142,15 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
         <label>
           <span className="mb-2 block text-sm font-medium">Daily workout time (minutes)</span>
           <input
-            type="number"
+            type="text"
+            inputMode="numeric"
             min={15}
             max={180}
             step={5}
             value={form.dailyWorkoutMinutes}
-            onChange={(event) => setForm((prev) => ({ ...prev, dailyWorkoutMinutes: Number(event.target.value) }))}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, dailyWorkoutMinutes: sanitizeIntegerInput(event.target.value) }))
+            }
             className="w-full rounded-2xl border border-black/10 bg-white/80 px-4 py-3 outline-none focus:border-clay dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50"
           />
         </label>
@@ -129,11 +158,12 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
         <label>
           <span className="mb-2 block text-sm font-medium">Height (cm)</span>
           <input
-            type="number"
+            type="text"
+            inputMode="numeric"
             min={100}
             max={240}
             value={form.height}
-            onChange={(event) => setForm((prev) => ({ ...prev, height: Number(event.target.value) }))}
+            onChange={(event) => setForm((prev) => ({ ...prev, height: sanitizeIntegerInput(event.target.value) }))}
             className="w-full rounded-2xl border border-black/10 bg-white/80 px-4 py-3 outline-none focus:border-clay dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50"
           />
         </label>
@@ -141,11 +171,12 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
         <label>
           <span className="mb-2 block text-sm font-medium">Weight (kg)</span>
           <input
-            type="number"
+            type="text"
+            inputMode="numeric"
             min={30}
             max={200}
             value={form.weight}
-            onChange={(event) => setForm((prev) => ({ ...prev, weight: Number(event.target.value) }))}
+            onChange={(event) => setForm((prev) => ({ ...prev, weight: sanitizeIntegerInput(event.target.value) }))}
             className="w-full rounded-2xl border border-black/10 bg-white/80 px-4 py-3 outline-none focus:border-clay dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50"
           />
         </label>

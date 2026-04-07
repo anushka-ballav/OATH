@@ -6,6 +6,28 @@ import { genderOptions, savePreferredGender } from '../lib/gender';
 import { exportStateBundle, importStateBundle } from '../lib/storage';
 import { requestNotificationPermission } from '../services/notifications';
 
+const sanitizeIntegerInput = (value: string) => {
+  const digits = String(value || '').replace(/\D+/g, '');
+  if (!digits) return '';
+  return digits.replace(/^0+(?=\d)/, '');
+};
+
+const sanitizeDecimalInput = (value: string) => {
+  const cleaned = String(value || '').replace(/[^0-9.]/g, '');
+  const [whole = '', ...fractionParts] = cleaned.split('.');
+  const normalizedWhole = whole.replace(/^0+(?=\d)/, '');
+  const fraction = fractionParts.join('');
+
+  if (!cleaned) return '';
+  if (!fractionParts.length) return normalizedWhole || '0';
+  return `${normalizedWhole || '0'}.${fraction}`;
+};
+
+const parseNumberInput = (value: string, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 export const ProfilePage = () => {
   const {
     profile,
@@ -31,12 +53,12 @@ export const ProfilePage = () => {
   const [themeTapState, setThemeTapState] = useState<{ count: number; lastAt: number }>({ count: 0, lastAt: 0 });
   const [form, setForm] = useState({
     gender: profile?.gender ?? 'Other',
-    age: profile?.age ?? 0,
-    height: profile?.height ?? 0,
-    weight: profile?.weight ?? 0,
+    age: String(profile?.age ?? 0),
+    height: String(profile?.height ?? 0),
+    weight: String(profile?.weight ?? 0),
     goal: profile?.goal ?? 'Maintain',
-    dailyStudyHours: profile?.dailyStudyHours ?? profile?.dailyTargets?.studyHours ?? 3,
-    dailyWorkoutMinutes: profile?.dailyWorkoutMinutes ?? profile?.dailyTargets?.workoutMinutes ?? 45,
+    dailyStudyHours: String(profile?.dailyStudyHours ?? profile?.dailyTargets?.studyHours ?? 3),
+    dailyWorkoutMinutes: String(profile?.dailyWorkoutMinutes ?? profile?.dailyTargets?.workoutMinutes ?? 45),
   });
 
   if (!profile || !session) return null;
@@ -107,14 +129,22 @@ export const ProfilePage = () => {
     setSavedMessage('');
 
     try {
-      const dailyStudyHours = Number.isFinite(form.dailyStudyHours)
-        ? Math.min(10, Math.max(1, form.dailyStudyHours))
-        : profile.dailyTargets.studyHours;
-      const dailyWorkoutMinutes = Number.isFinite(form.dailyWorkoutMinutes)
-        ? Math.min(180, Math.max(15, Math.round(form.dailyWorkoutMinutes)))
-        : profile.dailyTargets.workoutMinutes;
+      const age = Math.min(90, Math.max(10, Math.round(parseNumberInput(form.age, profile.age))));
+      const height = Math.min(240, Math.max(100, Math.round(parseNumberInput(form.height, profile.height))));
+      const weight = Math.min(200, Math.max(30, Math.round(parseNumberInput(form.weight, profile.weight))));
+      const dailyStudyHours = Math.min(
+        10,
+        Math.max(1, parseNumberInput(form.dailyStudyHours, profile.dailyTargets.studyHours)),
+      );
+      const dailyWorkoutMinutes = Math.min(
+        180,
+        Math.max(15, Math.round(parseNumberInput(form.dailyWorkoutMinutes, profile.dailyTargets.workoutMinutes))),
+      );
       await updateProfile({
         ...form,
+        age,
+        height,
+        weight,
         dailyStudyHours,
         dailyWorkoutMinutes,
         dailyAvailableHours: Math.min(12, Math.max(1, dailyStudyHours + dailyWorkoutMinutes / 60)),
@@ -308,51 +338,60 @@ export const ProfilePage = () => {
           <label>
             <span className="mb-2 block text-sm font-medium">Age</span>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={form.age}
-              onChange={(event) => setForm((prev) => ({ ...prev, age: Number(event.target.value) }))}
+              onChange={(event) => setForm((prev) => ({ ...prev, age: sanitizeIntegerInput(event.target.value) }))}
               className="w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-black outline-none focus:border-clay"
             />
           </label>
           <label>
             <span className="mb-2 block text-sm font-medium">Height</span>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={form.height}
-              onChange={(event) => setForm((prev) => ({ ...prev, height: Number(event.target.value) }))}
+              onChange={(event) => setForm((prev) => ({ ...prev, height: sanitizeIntegerInput(event.target.value) }))}
               className="w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-black outline-none focus:border-clay"
             />
           </label>
           <label>
             <span className="mb-2 block text-sm font-medium">Weight</span>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={form.weight}
-              onChange={(event) => setForm((prev) => ({ ...prev, weight: Number(event.target.value) }))}
+              onChange={(event) => setForm((prev) => ({ ...prev, weight: sanitizeIntegerInput(event.target.value) }))}
               className="w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-black outline-none focus:border-clay"
             />
           </label>
           <label>
             <span className="mb-2 block text-sm font-medium">Daily study hours</span>
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
               min={1}
               max={10}
               step={0.5}
               value={form.dailyStudyHours}
-              onChange={(event) => setForm((prev) => ({ ...prev, dailyStudyHours: Number(event.target.value) }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, dailyStudyHours: sanitizeDecimalInput(event.target.value) }))
+              }
               className="w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-black outline-none focus:border-clay"
             />
           </label>
           <label>
             <span className="mb-2 block text-sm font-medium">Daily workout minutes</span>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               min={15}
               max={180}
               step={5}
               value={form.dailyWorkoutMinutes}
-              onChange={(event) => setForm((prev) => ({ ...prev, dailyWorkoutMinutes: Number(event.target.value) }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, dailyWorkoutMinutes: sanitizeIntegerInput(event.target.value) }))
+              }
               className="w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-black outline-none focus:border-clay"
             />
           </label>

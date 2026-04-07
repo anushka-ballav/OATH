@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { CardShell } from '../components/CardShell';
 import { WeeklyChart } from '../components/WeeklyChart';
@@ -17,10 +17,23 @@ import {
 } from 'recharts';
 
 export const ProgressPage = () => {
-  const { logs, streakHistory, profile, currentLog, tasks } = useApp();
+  const { logs, streakHistory, profile, currentLog, tasks, refreshTasks, session } = useApp();
   const [range, setRange] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
   const rangeDays = range === 'daily' ? 1 : range === 'monthly' ? 30 : 7;
   const dateKeys = useMemo(() => getLastNDays(rangeDays), [rangeDays]);
+
+  useEffect(() => {
+    if (!session) return;
+    void refreshTasks();
+  }, [session?.identifier, session?.userId]);
+
+  const today = dateKeys[dateKeys.length - 1];
+  const completedDateKey = (isoString: string | null) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return '';
+    return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
+  };
 
   const buildSeries = (field: 'studyMinutes' | 'waterIntakeMl' | 'caloriesConsumed') =>
     dateKeys.map((date) => {
@@ -45,9 +58,19 @@ export const ProgressPage = () => {
 
   const taskSeries = useMemo(() => {
     return dateKeys.map((date) => {
-      const due = (tasks || []).filter((task) => task.dueDate === date);
-      const completed = due.filter((task) => task.completed).length;
-      const pending = due.filter((task) => !task.completed).length;
+      const completed = (tasks || []).filter((task) => {
+        if (!task.completed) return false;
+        const completedOn = completedDateKey(task.completedAt);
+        return completedOn ? completedOn === date : task.dueDate === date;
+      }).length;
+
+      const pending = (tasks || []).filter((task) => {
+        if (task.completed) return false;
+        if (date === today) {
+          return task.dueDate <= date;
+        }
+        return task.dueDate === date;
+      }).length;
 
       return {
         day: date.slice(5),
@@ -55,7 +78,7 @@ export const ProgressPage = () => {
         pending,
       };
     });
-  }, [dateKeys, tasks]);
+  }, [dateKeys, tasks, today]);
 
   const caloriesSeries = useMemo(() => {
     return dateKeys.map((date) => {
