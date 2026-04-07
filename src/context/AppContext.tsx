@@ -21,7 +21,7 @@ import { EASTER_EGGS_TOTAL, normalizeEasterEggIds, type EasterEggId } from '../l
 import { achievementMeta, normalizeAchievementIds, type AchievementId } from '../lib/achievements';
 import { computeUserScore } from '../lib/score';
 import { randomId } from '../lib/utils';
-import { defaultNotifications } from '../services/notifications';
+import { defaultNotifications, processScheduledNotifications } from '../services/notifications';
 import { fetchBmiHistory as apiFetchBmiHistory, recordBmi as apiRecordBmi } from '../services/bmi';
 import {
   createTask as apiCreateTask,
@@ -377,7 +377,14 @@ const normalizeState = (state: AppState): AppState => ({
     : [defaultLog()],
   tasks: Array.isArray(state.tasks) ? state.tasks : [],
   bmiHistory: Array.isArray(state.bmiHistory) ? state.bmiHistory : [],
-  notifications: state.notifications?.length ? state.notifications : defaultNotifications,
+  notifications: defaultNotifications.map((defaultItem) => {
+    const match = state.notifications?.find((item) => item.id === defaultItem.id);
+    return {
+      ...defaultItem,
+      enabled: typeof match?.enabled === 'boolean' ? match.enabled : defaultItem.enabled,
+      time: typeof match?.time === 'string' && /^\d{2}:\d{2}$/.test(match.time) ? match.time : defaultItem.time,
+    };
+  }),
   leaderboard: state.leaderboard ?? [],
   streakHistory: state.streakHistory ?? [],
   darkMode: state.darkMode ?? true,
@@ -460,6 +467,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       const nextLogs = remoteState.logs.length ? remoteState.logs : localLogs;
       const nextTasks = remoteState.tasks.length ? remoteState.tasks : localTasks;
       const nextBmiHistory = remoteState.bmiHistory.length ? remoteState.bmiHistory : localBmiHistory;
+      const nextNotifications = remoteState.notifications.length
+        ? remoteState.notifications
+        : baseState.notifications?.length
+          ? baseState.notifications
+          : aliasLocalState?.notifications ?? defaultNotifications;
       const nextStreakHistory =
         baseState.streakHistory.length || !nextProfile
           ? baseState.streakHistory
@@ -477,6 +489,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         logs: nextLogs,
         tasks: nextTasks,
         bmiHistory: nextBmiHistory,
+        notifications: nextNotifications,
         streakHistory: nextStreakHistory,
       });
     } catch {
@@ -680,13 +693,52 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
   useEffect(() => {
     if (!isReady || !state.session || !state.profile) return;
-    void syncProfileToServer(state.session, state.profile);
-  }, [isReady, state.profile, state.session]);
+    void syncProfileToServer(state.session, state.profile, state.notifications);
+  }, [isReady, state.notifications, state.profile, state.session]);
 
   useEffect(() => {
     if (!isReady || !state.session) return;
     void syncDailyLogToServer(state.session, state.profile, currentLog);
   }, [currentLog, isReady, state.profile, state.session]);
+
+  useEffect(() => {
+    if (!isReady || !state.session || !state.profile) return;
+
+    let cancelled = false;
+    const run = async () => {
+      if (cancelled) return;
+      await processScheduledNotifications({
+        userId: state.session!.userId,
+        profile: state.profile,
+        log: currentLog,
+        tasks: state.tasks,
+        notifications: state.notifications,
+      });
+    };
+
+    void run();
+    const interval = window.setInterval(() => {
+      void run();
+    }, 30_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void run();
+      }
+    };
+    const handleFocus = () => {
+      void run();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [currentLog, isReady, state.notifications, state.profile, state.session, state.tasks]);
 
   const upsertLog = async (updater: (log: DailyLog) => DailyLog) => {
     let nextLog: DailyLog | null = null;

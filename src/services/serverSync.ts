@@ -1,4 +1,4 @@
-import { BMIEntry, DailyLog, TaskItem, UserProfile, UserSession } from '../types';
+import { BMIEntry, DailyLog, NotificationItem, TaskItem, UserProfile, UserSession } from '../types';
 
 const safePost = async (path: string, body: unknown) => {
   try {
@@ -12,7 +12,11 @@ const safePost = async (path: string, body: unknown) => {
   }
 };
 
-export const syncProfileToServer = async (session: UserSession, profile: UserProfile) => {
+export const syncProfileToServer = async (
+  session: UserSession,
+  profile: UserProfile,
+  notifications?: NotificationItem[],
+) => {
   if (!session?.userId || !session?.identifier) return;
   await safePost('/api/sync/profile', {
     userId: session.userId,
@@ -27,6 +31,7 @@ export const syncProfileToServer = async (session: UserSession, profile: UserPro
     dailyStudyHours: profile.dailyStudyHours,
     dailyWorkoutMinutes: profile.dailyWorkoutMinutes,
     dailyTargets: profile.dailyTargets,
+    notifications,
   });
 };
 
@@ -47,6 +52,7 @@ export const fetchUserStateFromServer = async (userId: string, identifier?: stri
   logs: DailyLog[];
   tasks: TaskItem[];
   bmiHistory: BMIEntry[];
+  notifications: NotificationItem[];
 }> => {
   const params = new URLSearchParams();
   if (userId) params.set('userId', userId);
@@ -59,6 +65,7 @@ export const fetchUserStateFromServer = async (userId: string, identifier?: stri
         logs?: DailyLog[];
         tasks?: TaskItem[];
         bmiHistory?: BMIEntry[];
+        notifications?: NotificationItem[];
         message?: string;
       }
     | null;
@@ -73,5 +80,6 @@ export const fetchUserStateFromServer = async (userId: string, identifier?: stri
     logs: Array.isArray(payload?.logs) ? payload.logs : [],
     tasks: Array.isArray(payload?.tasks) ? payload.tasks : [],
     bmiHistory: Array.isArray(payload?.bmiHistory) ? payload.bmiHistory : [],
+    notifications: Array.isArray(payload?.notifications) ? payload.notifications : [],
   };
 };

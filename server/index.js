@@ -227,6 +227,53 @@ const updateStore = async (updater) => {
 const getReminderTimeZone = () => process.env.TASK_REMINDER_TIMEZONE || 'Asia/Kolkata';
 const toDateKey = (date = new Date(), timeZone = getReminderTimeZone()) =>
   date.toLocaleDateString('en-CA', { timeZone });
+const DEFAULT_NOTIFICATION_SETTINGS = [
+  { id: 'wake', label: 'Wake up reminder', time: '06:00', enabled: true },
+  { id: 'study', label: 'Study reminder', time: '18:00', enabled: true },
+  { id: 'water', label: 'Drink water reminder', time: '10:00', enabled: true },
+  { id: 'tasks', label: '8 PM unfinished tasks reminder', time: '20:00', enabled: true },
+];
+const normalizeReminderTime = (value, fallback = '20:00') =>
+  /^\d{2}:\d{2}$/.test(String(value || '').trim()) ? String(value).trim() : fallback;
+const normalizeNotificationSettings = (notifications) => {
+  const provided = Array.isArray(notifications) ? notifications : [];
+
+  return DEFAULT_NOTIFICATION_SETTINGS.map((defaultItem) => {
+    const match = provided.find((item) => item?.id === defaultItem.id);
+    return {
+      ...defaultItem,
+      enabled: typeof match?.enabled === 'boolean' ? match.enabled : defaultItem.enabled,
+      time: normalizeReminderTime(match?.time, defaultItem.time),
+    };
+  });
+};
+const getTaskReminderSettings = (store, userId) =>
+  normalizeNotificationSettings(store.reminders?.[userId]?.notifications).find((item) => item.id === 'tasks') ||
+  DEFAULT_NOTIFICATION_SETTINGS[DEFAULT_NOTIFICATION_SETTINGS.length - 1];
+const getZonedClock = (timeZone = getReminderTimeZone(), date = new Date()) => {
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date).map((part) => [part.type, part.value]),
+  );
+  return {
+    dateKey: `${parts.year}-${parts.month}-${parts.day}`,
+    hour: Number(parts.hour || 0),
+    minute: Number(parts.minute || 0),
+  };
+};
+const hasReachedReminderTime = (time, timeZone = getReminderTimeZone(), date = new Date()) => {
+  const [hours, minutes] = normalizeReminderTime(time, '20:00').split(':').map(Number);
+  const zoned = getZonedClock(timeZone, date);
+  return zoned.hour * 60 + zoned.minute >= hours * 60 + minutes;
+};
 
 const buildOtpEmailText = (code) => `OATH login code: ${code}. It expires in 10 minutes.`;
 
@@ -435,18 +482,26 @@ const formatWater = (liters) => {
 };
 
 const buildGoalStatus = ({ profileTargets, dailyLog }) => {
-  if (!profileTargets || !dailyLog) return null;
+  if (!profileTargets) return null;
+
+  const safeDailyLog = dailyLog && typeof dailyLog === 'object'
+    ? dailyLog
+    : {
+        waterIntakeMl: 0,
+        studyMinutes: 0,
+        completedWorkoutTasks: [],
+      };
 
   const waterTarget = Math.max(0, Number(profileTargets.waterLiters) || 0);
-  const waterConsumed = Math.max(0, Number(dailyLog.waterIntakeMl || 0) / 1000);
+  const waterConsumed = Math.max(0, Number(safeDailyLog.waterIntakeMl || 0) / 1000);
   const waterRemaining = Math.max(0, waterTarget - waterConsumed);
 
   const studyTarget = Math.max(0, Number(profileTargets.studyHours) || 0);
-  const studyDone = Math.max(0, Number(dailyLog.studyMinutes || 0) / 60);
+  const studyDone = Math.max(0, Number(safeDailyLog.studyMinutes || 0) / 60);
   const studyRemaining = Math.max(0, studyTarget - studyDone);
 
   const checklist = Array.isArray(profileTargets?.workoutPlan?.dailyChecklist) ? profileTargets.workoutPlan.dailyChecklist : [];
-  const completed = Array.isArray(dailyLog.completedWorkoutTasks) ? dailyLog.completedWorkoutTasks : [];
+  const completed = Array.isArray(safeDailyLog.completedWorkoutTasks) ? safeDailyLog.completedWorkoutTasks : [];
   const completedSet = new Set(completed);
   const remainingWorkout = checklist.filter((task) => task?.id && !completedSet.has(task.id));
 
@@ -1635,6 +1690,7 @@ const syncProfileHandler = async (request, response) => {
   const dailyStudyHours = Math.max(0, parseNumber(request.body?.dailyStudyHours, 0));
   const dailyWorkoutMinutes = Math.max(0, Math.round(parseNumber(request.body?.dailyWorkoutMinutes, 0)));
   const dailyTargets = normalizeDailyTargets(request.body?.dailyTargets);
+  const notifications = normalizeNotificationSettings(request.body?.notifications);
 
   if (!identifier || !identifier.includes('@')) return response.status(400).json({ message: 'identifier is required.' });
   if (!dailyTargets) return response.status(400).json({ message: 'dailyTargets is required.' });
@@ -1662,6 +1718,12 @@ const syncProfileHandler = async (request, response) => {
       dailyStudyHours,
       dailyWorkoutMinutes,
       dailyTargets,
+      updatedAt: now,
+    };
+
+    store.reminders[userId] = {
+      ...(store.reminders?.[userId] && typeof store.reminders[userId] === 'object' ? store.reminders[userId] : {}),
+      notifications,
       updatedAt: now,
     };
 
@@ -1789,6 +1851,7 @@ const getUserStateHandler = async (request, response) => {
     .filter(Boolean);
   const tasks = Array.isArray(store.tasks?.[userId]) ? store.tasks[userId] : [];
   const bmiHistory = Array.isArray(store.bmi?.[userId]) ? store.bmi[userId] : [];
+  const notifications = normalizeNotificationSettings(store.reminders?.[userId]?.notifications);
 
   return response.json({
     userId,
@@ -1796,6 +1859,7 @@ const getUserStateHandler = async (request, response) => {
     logs,
     tasks,
     bmiHistory,
+    notifications,
   });
 };
 
@@ -3003,6 +3067,11 @@ const runTaskReminderJob = async () => {
       continue;
     }
 
+    const reminderSettings = getTaskReminderSettings(store, userId);
+    if (!reminderSettings.enabled || !hasReachedReminderTime(reminderSettings.time)) {
+      continue;
+    }
+
     const lastSentDate = store.reminders?.[userId]?.lastSentDate || '';
     if (lastSentDate === today) {
       continue;
@@ -3033,6 +3102,9 @@ const runTaskReminderJob = async () => {
 
       await updateStore((storeUpdate) => {
         storeUpdate.reminders[userId] = {
+          ...(storeUpdate.reminders?.[userId] && typeof storeUpdate.reminders[userId] === 'object'
+            ? storeUpdate.reminders[userId]
+            : {}),
           lastSentDate: today,
           lastSentAt: new Date().toISOString(),
           pendingCount: pending.length,
@@ -3049,7 +3121,7 @@ const scheduleTaskReminders = () => {
   const enabled = String(process.env.ENABLE_TASK_REMINDERS || 'true').trim().toLowerCase() !== 'false';
   if (!enabled) return;
 
-  const cronExpression = String(process.env.TASK_REMINDER_CRON || '0 20 * * *').trim();
+  const cronExpression = String(process.env.TASK_REMINDER_CRON || '*/1 * * * *').trim();
   const timeZone = getReminderTimeZone();
 
   if (!cron.validate(cronExpression)) {
@@ -3064,6 +3136,8 @@ const scheduleTaskReminders = () => {
     },
     { timezone: timeZone },
   );
+
+  void runTaskReminderJob();
 };
 
 scheduleTaskReminders();
