@@ -1,7 +1,7 @@
 import { AppState } from '../types';
 
-const GLOBAL_STORAGE_KEY = 'discipline-ai-tracker-global-state';
-const USER_STORAGE_PREFIX = 'discipline-ai-tracker-user-state';
+const GLOBAL_STORAGE_KEY = 'discipline-ai-tracker-global-state-v3';
+const USER_STORAGE_PREFIX = 'discipline-ai-tracker-user-state-v3';
 
 type GlobalState = Pick<AppState, 'session' | 'darkMode'>;
 type UserScopedState = Omit<AppState, 'session' | 'darkMode'>;

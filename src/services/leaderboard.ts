@@ -15,8 +15,11 @@ const readJson = async <T>(response: Response): Promise<T> => {
   return payload as T;
 };
 
-export const fetchLeaderboardSnapshot = async (userId: string) => {
-  const response = await fetch(`/api/leaderboard?userId=${encodeURIComponent(userId)}`);
+export const fetchLeaderboardSnapshot = async (userId: string, identifier?: string) => {
+  const params = new URLSearchParams();
+  if (userId) params.set('userId', userId);
+  if (identifier) params.set('identifier', identifier.trim().toLowerCase());
+  const response = await fetch(`/api/leaderboard?${params.toString()}`);
   return readJson<LeaderboardSnapshot>(response);
 };
 
@@ -46,9 +49,14 @@ export const createLeaderboardInvite = async ({
   return payload.invite;
 };
 
-export const fetchInvitePreview = async (inviteCode: string, userId?: string) => {
-  const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
-  const response = await fetch(`/api/leaderboard/invite/${encodeURIComponent(inviteCode)}${query}`);
+export const fetchInvitePreview = async (inviteCode: string, userId?: string, identifier?: string) => {
+  const params = new URLSearchParams();
+  if (userId) params.set('userId', userId);
+  if (identifier) params.set('identifier', identifier.trim().toLowerCase());
+  const query = params.toString();
+  const response = await fetch(
+    `/api/leaderboard/invite/${encodeURIComponent(inviteCode)}${query ? `?${query}` : ''}`,
+  );
   const payload = await readJson<{ invite: LeaderboardInvitePreview }>(response);
   return payload.invite;
 };

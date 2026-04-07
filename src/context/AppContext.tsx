@@ -456,11 +456,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       const localBmiHistory =
         baseState.bmiHistory.length ? baseState.bmiHistory : aliasLocalState?.bmiHistory ?? [];
 
-      const nextProfile = localProfile ?? remoteState.profile ?? null;
-      const nextLogs =
-        shouldUseRemoteLogs(localLogs) && remoteState.logs.length ? remoteState.logs : localLogs;
-      const nextTasks = localTasks.length ? localTasks : remoteState.tasks;
-      const nextBmiHistory = localBmiHistory.length ? localBmiHistory : remoteState.bmiHistory;
+      const nextProfile = remoteState.profile ?? localProfile ?? null;
+      const nextLogs = remoteState.logs.length ? remoteState.logs : localLogs;
+      const nextTasks = remoteState.tasks.length ? remoteState.tasks : localTasks;
+      const nextBmiHistory = remoteState.bmiHistory.length ? remoteState.bmiHistory : localBmiHistory;
       const nextStreakHistory =
         baseState.streakHistory.length || !nextProfile
           ? baseState.streakHistory
@@ -654,7 +653,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
     const hydrateServer = async () => {
       try {
-        const tasks = await apiFetchTasks(userId);
+        const tasks = await apiFetchTasks(userId, state.session?.identifier);
         if (!cancelled) {
           setState((prev) => ({ ...prev, tasks }));
         }
@@ -663,7 +662,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       }
 
       try {
-        const bmiHistory = await apiFetchBmiHistory(userId);
+        const bmiHistory = await apiFetchBmiHistory(userId, state.session?.identifier);
         if (!cancelled) {
           setState((prev) => ({ ...prev, bmiHistory }));
         }
@@ -682,12 +681,12 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   useEffect(() => {
     if (!isReady || !state.session || !state.profile) return;
     void syncProfileToServer(state.session, state.profile);
-  }, [isReady, state.profile?.userId, state.session?.userId]);
+  }, [isReady, state.profile, state.session]);
 
   useEffect(() => {
     if (!isReady || !state.session) return;
     void syncDailyLogToServer(state.session, state.profile, currentLog);
-  }, [currentLog.date, isReady, state.session?.userId]);
+  }, [currentLog, isReady, state.profile, state.session]);
 
   const upsertLog = async (updater: (log: DailyLog) => DailyLog) => {
     let nextLog: DailyLog | null = null;
@@ -1235,7 +1234,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     },
     async refreshTasks() {
       if (!state.session) return;
-      const tasks = await apiFetchTasks(state.session.userId);
+      const tasks = await apiFetchTasks(state.session.userId, state.session.identifier);
       setState((prev) => ({ ...prev, tasks }));
     },
     async createTask(title, dueAt) {
@@ -1282,12 +1281,12 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     },
     async deleteTask(taskId) {
       if (!state.session) return;
-      await apiDeleteTask(state.session.userId, taskId);
+      await apiDeleteTask(state.session.userId, taskId, state.session.identifier);
       setState((prev) => ({ ...prev, tasks: prev.tasks.filter((task) => task.id !== taskId) }));
     },
     async refreshBmi() {
       if (!state.session) return;
-      const bmiHistory = await apiFetchBmiHistory(state.session.userId);
+      const bmiHistory = await apiFetchBmiHistory(state.session.userId, state.session.identifier);
       setState((prev) => ({ ...prev, bmiHistory }));
     },
     async recordBmi(heightCm, weightKg) {
@@ -1339,7 +1338,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           await fetch('/api/reset', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: currentSession.userId }),
+            body: JSON.stringify({ userId: currentSession.userId, identifier: currentSession.identifier }),
           });
         } catch (error) {
           console.error('Failed to clear server user data', error);

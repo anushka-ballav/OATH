@@ -8,8 +8,11 @@ const safeJson = async <T,>(response: Response): Promise<T | null> => {
   }
 };
 
-export const fetchBmiHistory = async (userId: string): Promise<BMIEntry[]> => {
-  const response = await fetch(`/api/bmi?userId=${encodeURIComponent(userId)}`);
+export const fetchBmiHistory = async (userId: string, identifier?: string): Promise<BMIEntry[]> => {
+  const params = new URLSearchParams();
+  if (userId) params.set('userId', userId);
+  if (identifier) params.set('identifier', identifier.trim().toLowerCase());
+  const response = await fetch(`/api/bmi?${params.toString()}`);
   const payload = await safeJson<{ history?: BMIEntry[]; message?: string }>(response);
 
   if (!response.ok) {
@@ -52,4 +55,3 @@ export const recordBmi = async ({
 
   return payload.entry;
 };
-

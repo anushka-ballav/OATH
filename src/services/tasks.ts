@@ -8,8 +8,11 @@ const safeJson = async <T,>(response: Response): Promise<T | null> => {
   }
 };
 
-export const fetchTasks = async (userId: string): Promise<TaskItem[]> => {
-  const response = await fetch(`/api/tasks?userId=${encodeURIComponent(userId)}`);
+export const fetchTasks = async (userId: string, identifier?: string): Promise<TaskItem[]> => {
+  const params = new URLSearchParams();
+  if (userId) params.set('userId', userId);
+  if (identifier) params.set('identifier', identifier.trim().toLowerCase());
+  const response = await fetch(`/api/tasks?${params.toString()}`);
   const payload = await safeJson<{ tasks?: TaskItem[] }>(response);
 
   if (!response.ok) {
@@ -89,8 +92,11 @@ export const updateTask = async ({
   return payload.task;
 };
 
-export const deleteTask = async (userId: string, taskId: string): Promise<void> => {
-  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}?userId=${encodeURIComponent(userId)}`, {
+export const deleteTask = async (userId: string, taskId: string, identifier?: string): Promise<void> => {
+  const params = new URLSearchParams();
+  if (userId) params.set('userId', userId);
+  if (identifier) params.set('identifier', identifier.trim().toLowerCase());
+  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}?${params.toString()}`, {
     method: 'DELETE',
   });
 
@@ -100,4 +106,3 @@ export const deleteTask = async (userId: string, taskId: string): Promise<void> 
     throw new Error(payload?.message || 'Unable to delete task.');
   }
 };
-

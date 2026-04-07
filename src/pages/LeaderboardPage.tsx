@@ -243,7 +243,7 @@ export const LeaderboardPage = () => {
       await syncProfileToServer(session, profile);
       await syncDailyLogToServer(session, profile, currentLog);
 
-      const snapshot = await fetchLeaderboardSnapshot(session.userId);
+      const snapshot = await fetchLeaderboardSnapshot(session.userId, session.identifier);
       setGlobalEntries(snapshot.globalEntries);
       setFriendEntries(snapshot.friendEntries);
       setActiveInvite(snapshot.activeInvite);
@@ -310,7 +310,7 @@ export const LeaderboardPage = () => {
 
     const loadInvitePreview = async () => {
       try {
-        const preview = await fetchInvitePreview(inviteCode, session.userId);
+        const preview = await fetchInvitePreview(inviteCode, session.userId, session.identifier);
         if (!cancelled) {
           setInvitePreview(preview);
         }
@@ -343,6 +343,7 @@ export const LeaderboardPage = () => {
     [rankedGlobal, session?.userId],
   );
   const podiumEntries = rankedGlobal.slice(0, 3);
+  const outsidePodiumEntry = yourEntry && yourEntry.rank > 3 ? yourEntry : null;
   const friendsBehindYou = rankedFriends.filter((entry) => entry.userId !== session?.userId && (yourEntry?.points || 0) > entry.points).length;
 
   const handleCopyInvite = async () => {
@@ -761,9 +762,24 @@ export const LeaderboardPage = () => {
 
           <div className="mt-4 space-y-3">
             {rankedGlobal.length ? (
-              rankedGlobal.slice(0, 3).map((entry) => (
-                <LeaderboardRow key={entry.userId || entry.id} entry={entry} tone="global" />
-              ))
+              <>
+                {rankedGlobal.slice(0, 3).map((entry) => (
+                  <LeaderboardRow key={entry.userId || entry.id} entry={entry} tone="global" />
+                ))}
+                {outsidePodiumEntry ? (
+                  <div className="rounded-[22px] border border-dashed border-orange-400/20 bg-white/45 px-4 py-4 dark:bg-white/5">
+                    <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-orange-100/75">
+                      Your Standing
+                    </p>
+                    <p className="muted-text mt-1 text-sm">
+                      You are outside the current top 3, but your live rank is still tracked here.
+                    </p>
+                    <div className="mt-3">
+                      <LeaderboardRow entry={outsidePodiumEntry} tone="global" />
+                    </div>
+                  </div>
+                ) : null}
+              </>
             ) : (
               <div className="soft-surface rounded-[22px] px-4 py-4 text-sm text-black">
                 Leaderboard entries will appear after users sync their profile and daily progress.

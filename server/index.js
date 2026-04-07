@@ -1459,6 +1459,16 @@ const mergeUserDataIntoCanonical = (store, fromUserId, toUserId) => {
     };
     delete store.users[fromUserId];
   }
+
+  Object.values(store.leaderboardInvites || {}).forEach((invite) => {
+    if (!invite || typeof invite !== 'object') return;
+    if (invite.inviterUserId === fromUserId) {
+      invite.inviterUserId = toUserId;
+    }
+    if (invite.acceptedByUserId === fromUserId) {
+      invite.acceptedByUserId = toUserId;
+    }
+  });
 };
 
 const verifyOtpHandler = async (request, response) => {
@@ -2071,10 +2081,22 @@ const buildInvitePreview = (store, request, inviteCode, currentUserId = '') => {
 };
 
 const listLeaderboardHandler = async (request, response) => {
-  const userId = String(request.query?.userId || '').trim();
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  const providedUserId = String(request.query?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.query?.identifier);
+  if (!providedUserId && !identifier) return response.status(400).json({ message: 'userId or identifier is required.' });
 
-  const store = await readStore();
+  const initialStore = await readStore();
+  const userId = resolveCanonicalUserId(initialStore, providedUserId, identifier);
+  if (!userId) return response.status(404).json({ message: 'Account not found.' });
+
+  let store = initialStore;
+  if (providedUserId && providedUserId !== userId) {
+    await updateStore((mutableStore) => {
+      mergeUserDataIntoCanonical(mutableStore, providedUserId, userId);
+    });
+    store = await readStore();
+  }
+
   const friendLookup = store.friendships?.[userId] && typeof store.friendships[userId] === 'object' ? store.friendships[userId] : {};
   const candidateUserIds = Array.from(
     new Set([...Object.keys(store.profiles || {}), ...Object.keys(store.dailyLogs || {}), userId]),
@@ -2102,16 +2124,23 @@ const listLeaderboardHandler = async (request, response) => {
 };
 
 const createInviteHandler = async (request, response) => {
-  const userId = String(request.body?.userId || '').trim();
-  const identifier = String(request.body?.identifier || '').trim().toLowerCase();
+  const providedUserId = String(request.body?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.body?.identifier);
   const name = String(request.body?.name || '').trim();
   const force = Boolean(request.body?.force);
 
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  if (!providedUserId && !identifier) return response.status(400).json({ message: 'userId or identifier is required.' });
 
   let invite = null;
+  let userId = '';
 
   await updateStore((store) => {
+    userId = resolveCanonicalUserId(store, providedUserId, identifier);
+    if (!userId) return;
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(store, providedUserId, userId);
+    }
+
     upsertUserInStore(store, { userId, email: identifier, name });
     store.leaderboardInvites =
       store.leaderboardInvites && typeof store.leaderboardInvites === 'object' ? store.leaderboardInvites : {};
@@ -2151,16 +2180,29 @@ const createInviteHandler = async (request, response) => {
     store.leaderboardInvites[code] = invite;
   });
 
+  if (!userId) return response.status(400).json({ message: 'Unable to resolve account identity.' });
+
   return response.status(201).json({ invite: serializeInvite(request, invite) });
 };
 
 const getInviteHandler = async (request, response) => {
   const inviteCode = String(request.params?.inviteCode || '').trim();
-  const userId = String(request.query?.userId || '').trim();
+  const providedUserId = String(request.query?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.query?.identifier);
 
   if (!inviteCode) return response.status(400).json({ message: 'inviteCode is required.' });
 
-  const store = await readStore();
+  const initialStore = await readStore();
+  const userId = providedUserId || identifier ? resolveCanonicalUserId(initialStore, providedUserId, identifier) : '';
+  let store = initialStore;
+
+  if (providedUserId && userId && providedUserId !== userId) {
+    await updateStore((mutableStore) => {
+      mergeUserDataIntoCanonical(mutableStore, providedUserId, userId);
+    });
+    store = await readStore();
+  }
+
   const invite = buildInvitePreview(store, request, inviteCode, userId);
 
   if (!invite) {
@@ -2172,17 +2214,27 @@ const getInviteHandler = async (request, response) => {
 
 const joinInviteHandler = async (request, response) => {
   const inviteCode = String(request.body?.inviteCode || '').trim();
-  const userId = String(request.body?.userId || '').trim();
-  const identifier = String(request.body?.identifier || '').trim().toLowerCase();
+  const providedUserId = String(request.body?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.body?.identifier);
   const name = String(request.body?.name || '').trim();
 
   if (!inviteCode) return response.status(400).json({ message: 'inviteCode is required.' });
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  if (!providedUserId && !identifier) return response.status(400).json({ message: 'userId or identifier is required.' });
 
   let failureMessage = '';
   let inviterUserId = '';
+  let userId = '';
 
   await updateStore((store) => {
+    userId = resolveCanonicalUserId(store, providedUserId, identifier);
+    if (!userId) {
+      failureMessage = 'Unable to resolve account identity.';
+      return;
+    }
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(store, providedUserId, userId);
+    }
+
     upsertUserInStore(store, { userId, email: identifier, name });
 
     const invite = store.leaderboardInvites?.[inviteCode] ?? null;
@@ -2239,23 +2291,34 @@ app.post('/api/leaderboard/join', joinInviteHandler);
 app.post('/leaderboard/join', joinInviteHandler);
 
 const listTasksHandler = async (request, response) => {
-  const userId = String(request.query?.userId || '').trim();
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  const providedUserId = String(request.query?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.query?.identifier);
+  if (!providedUserId && !identifier) return response.status(400).json({ message: 'userId or identifier is required.' });
 
-  const store = await readStore();
+  const initialStore = await readStore();
+  const userId = resolveCanonicalUserId(initialStore, providedUserId, identifier);
+  if (!userId) return response.status(404).json({ message: 'Account not found.' });
+
+  let store = initialStore;
+  if (providedUserId && providedUserId !== userId) {
+    await updateStore((mutableStore) => {
+      mergeUserDataIntoCanonical(mutableStore, providedUserId, userId);
+    });
+    store = await readStore();
+  }
   const tasks = Array.isArray(store.tasks[userId]) ? store.tasks[userId] : [];
-  return response.json({ tasks });
+  return response.json({ userId, tasks });
 };
 
 const createTaskHandler = async (request, response) => {
-  const userId = String(request.body?.userId || '').trim();
-  const email = String(request.body?.identifier || request.body?.email || '').trim().toLowerCase();
+  const providedUserId = String(request.body?.userId || '').trim();
+  const email = normalizeIdentifier(request.body?.identifier || request.body?.email);
   const name = String(request.body?.name || '').trim();
   const title = String(request.body?.title || '').trim();
   const dueAt = request.body?.dueAt ? String(request.body.dueAt).trim() : '';
   const dueDate = normalizeDueDateKey(dueAt, request.body?.dueDate);
 
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  if (!providedUserId && !email) return response.status(400).json({ message: 'userId or identifier is required.' });
   if (!title) return response.status(400).json({ message: 'Task title is required.' });
 
   const now = new Date().toISOString();
@@ -2270,22 +2333,30 @@ const createTaskHandler = async (request, response) => {
     updatedAt: now,
   };
 
+  let userId = '';
   await updateStore((store) => {
+    userId = resolveCanonicalUserId(store, providedUserId, email);
+    if (!userId) return;
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(store, providedUserId, userId);
+    }
+
     store.tasks[userId] = Array.isArray(store.tasks[userId]) ? store.tasks[userId] : [];
     store.tasks[userId].unshift(task);
     upsertUserInStore(store, { userId, email, name });
   });
 
+  if (!userId) return response.status(400).json({ message: 'Unable to resolve account identity.' });
   return response.status(201).json({ task });
 };
 
 const updateTaskHandler = async (request, response) => {
-  const userId = String(request.body?.userId || '').trim();
-  const email = String(request.body?.identifier || request.body?.email || '').trim().toLowerCase();
+  const providedUserId = String(request.body?.userId || '').trim();
+  const email = normalizeIdentifier(request.body?.identifier || request.body?.email);
   const name = String(request.body?.name || '').trim();
   const taskId = String(request.params?.taskId || '').trim();
 
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  if (!providedUserId && !email) return response.status(400).json({ message: 'userId or identifier is required.' });
   if (!taskId) return response.status(400).json({ message: 'taskId is required.' });
 
   const patch = request.body?.patch && typeof request.body.patch === 'object' ? request.body.patch : {};
@@ -2295,8 +2366,15 @@ const updateTaskHandler = async (request, response) => {
   const nextDueDate = patch.dueDate ? normalizeDateKey(patch.dueDate) : '';
 
   let updatedTask = null;
+  let userId = '';
 
   await updateStore((store) => {
+    userId = resolveCanonicalUserId(store, providedUserId, email);
+    if (!userId) return;
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(store, providedUserId, userId);
+    }
+
     const tasks = Array.isArray(store.tasks[userId]) ? store.tasks[userId] : [];
     const index = tasks.findIndex((item) => item?.id === taskId);
     if (index === -1) return;
@@ -2334,15 +2412,23 @@ const updateTaskHandler = async (request, response) => {
 };
 
 const deleteTaskHandler = async (request, response) => {
-  const userId = String(request.query?.userId || request.body?.userId || '').trim();
+  const providedUserId = String(request.query?.userId || request.body?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.query?.identifier || request.body?.identifier || request.body?.email);
   const taskId = String(request.params?.taskId || '').trim();
 
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  if (!providedUserId && !identifier) return response.status(400).json({ message: 'userId or identifier is required.' });
   if (!taskId) return response.status(400).json({ message: 'taskId is required.' });
 
   let removed = false;
+  let userId = '';
 
   await updateStore((store) => {
+    userId = resolveCanonicalUserId(store, providedUserId, identifier);
+    if (!userId) return;
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(store, providedUserId, userId);
+    }
+
     const tasks = Array.isArray(store.tasks[userId]) ? store.tasks[userId] : [];
     const nextTasks = tasks.filter((item) => item?.id !== taskId);
     removed = nextTasks.length !== tasks.length;
@@ -2366,22 +2452,33 @@ app.delete('/api/tasks/:taskId', deleteTaskHandler);
 app.delete('/tasks/:taskId', deleteTaskHandler);
 
 const listBmiHandler = async (request, response) => {
-  const userId = String(request.query?.userId || '').trim();
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  const providedUserId = String(request.query?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.query?.identifier);
+  if (!providedUserId && !identifier) return response.status(400).json({ message: 'userId or identifier is required.' });
 
-  const store = await readStore();
+  const initialStore = await readStore();
+  const userId = resolveCanonicalUserId(initialStore, providedUserId, identifier);
+  if (!userId) return response.status(404).json({ message: 'Account not found.' });
+
+  let store = initialStore;
+  if (providedUserId && providedUserId !== userId) {
+    await updateStore((mutableStore) => {
+      mergeUserDataIntoCanonical(mutableStore, providedUserId, userId);
+    });
+    store = await readStore();
+  }
   const history = Array.isArray(store.bmi[userId]) ? store.bmi[userId] : [];
-  return response.json({ history });
+  return response.json({ userId, history });
 };
 
 const createBmiHandler = async (request, response) => {
-  const userId = String(request.body?.userId || '').trim();
-  const email = String(request.body?.identifier || request.body?.email || '').trim().toLowerCase();
+  const providedUserId = String(request.body?.userId || '').trim();
+  const email = normalizeIdentifier(request.body?.identifier || request.body?.email);
   const name = String(request.body?.name || '').trim();
   const heightCm = parseNumber(request.body?.heightCm, 0);
   const weightKg = parseNumber(request.body?.weightKg, 0);
 
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  if (!providedUserId && !email) return response.status(400).json({ message: 'userId or identifier is required.' });
   if (!heightCm || !weightKg) return response.status(400).json({ message: 'heightCm and weightKg are required.' });
 
   const now = new Date().toISOString();
@@ -2395,13 +2492,21 @@ const createBmiHandler = async (request, response) => {
     category: computed.category,
   };
 
+  let userId = '';
   await updateStore((store) => {
+    userId = resolveCanonicalUserId(store, providedUserId, email);
+    if (!userId) return;
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(store, providedUserId, userId);
+    }
+
     store.bmi[userId] = Array.isArray(store.bmi[userId]) ? store.bmi[userId] : [];
     store.bmi[userId].unshift(entry);
     store.bmi[userId] = store.bmi[userId].slice(0, 90);
     upsertUserInStore(store, { userId, email, name });
   });
 
+  if (!userId) return response.status(400).json({ message: 'Unable to resolve account identity.' });
   return response.status(201).json({ entry });
 };
 
@@ -2451,15 +2556,23 @@ app.get('/api/stats', statsHandler);
 app.get('/stats', statsHandler);
 
 app.post('/api/reset', async (request, response) => {
-  const userId = String(request.body?.userId || '').trim();
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
+  const providedUserId = String(request.body?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.body?.identifier);
+  if (!providedUserId && !identifier) return response.status(400).json({ message: 'userId or identifier is required.' });
 
+  let userId = '';
   await updateStore((store) => {
+    userId = resolveCanonicalUserId(store, providedUserId, identifier);
+    if (!userId) return;
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(store, providedUserId, userId);
+    }
     delete store.tasks[userId];
     delete store.bmi[userId];
     delete store.reminders[userId];
   });
 
+  if (!userId) return response.status(400).json({ message: 'Unable to resolve account identity.' });
   return response.json({ ok: true });
 });
 
