@@ -41,15 +41,20 @@ export const syncDailyLogToServer = async (session: UserSession, profile: UserPr
   });
 };
 
-export const fetchUserStateFromServer = async (userId: string): Promise<{
+export const fetchUserStateFromServer = async (userId: string, identifier?: string): Promise<{
+  userId: string;
   profile: UserProfile | null;
   logs: DailyLog[];
   tasks: TaskItem[];
   bmiHistory: BMIEntry[];
 }> => {
-  const response = await fetch(`/api/state?userId=${encodeURIComponent(userId)}`);
+  const params = new URLSearchParams();
+  if (userId) params.set('userId', userId);
+  if (identifier) params.set('identifier', identifier.trim().toLowerCase());
+  const response = await fetch(`/api/state?${params.toString()}`);
   const payload = (await response.json().catch(() => null)) as
     | {
+        userId?: string;
         profile?: UserProfile | null;
         logs?: DailyLog[];
         tasks?: TaskItem[];
@@ -63,6 +68,7 @@ export const fetchUserStateFromServer = async (userId: string): Promise<{
   }
 
   return {
+    userId: payload?.userId ?? userId,
     profile: payload?.profile ?? null,
     logs: Array.isArray(payload?.logs) ? payload.logs : [],
     tasks: Array.isArray(payload?.tasks) ? payload.tasks : [],

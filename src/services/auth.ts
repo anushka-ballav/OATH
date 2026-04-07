@@ -1,4 +1,3 @@
-import { randomId } from '../lib/utils';
 import { UserSession } from '../types';
 import { isFirebaseConfigured } from './firebase';
 
@@ -9,7 +8,7 @@ const canUseDemoFallback = () =>
 const isEmailOtpProvider = (provider?: UserSession['provider']) => provider === 'email-otp' || provider === 'email-smtp';
 
 const toStableUserId = (identifier: string) =>
-  `user-${normalizeIdentifier(identifier).replace(/[^a-z0-9]/g, '').slice(0, 24) || randomId()}`;
+  `user-${normalizeIdentifier(identifier).replace(/[^a-z0-9]/g, '').slice(0, 24) || 'email'}`;
 
 export const sendOtp = async (identifier: string) => {
   const normalizedIdentifier = normalizeIdentifier(identifier);

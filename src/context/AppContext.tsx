@@ -438,18 +438,29 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
   const hydrateSessionState = async (baseState: AppState) => {
     const userId = baseState.session?.userId;
+    const identifier = baseState.session?.identifier;
 
-    if (!userId) {
+    if (!userId && !identifier) {
       return normalizeState(baseState);
     }
 
     try {
-      const remoteState = await fetchUserStateFromServer(userId);
-      const nextProfile = baseState.profile ?? remoteState.profile ?? null;
+      const remoteState = await fetchUserStateFromServer(userId || '', identifier);
+      const resolvedUserId = remoteState.userId || userId || '';
+      const aliasLocalState =
+        resolvedUserId && resolvedUserId !== userId ? loadUserState(resolvedUserId) : null;
+      const localProfile = baseState.profile ?? aliasLocalState?.profile ?? null;
+      const localLogs =
+        shouldUseRemoteLogs(baseState.logs) && aliasLocalState?.logs?.length ? aliasLocalState.logs : baseState.logs;
+      const localTasks = baseState.tasks.length ? baseState.tasks : aliasLocalState?.tasks ?? [];
+      const localBmiHistory =
+        baseState.bmiHistory.length ? baseState.bmiHistory : aliasLocalState?.bmiHistory ?? [];
+
+      const nextProfile = localProfile ?? remoteState.profile ?? null;
       const nextLogs =
-        shouldUseRemoteLogs(baseState.logs) && remoteState.logs.length ? remoteState.logs : baseState.logs;
-      const nextTasks = baseState.tasks.length ? baseState.tasks : remoteState.tasks;
-      const nextBmiHistory = baseState.bmiHistory.length ? baseState.bmiHistory : remoteState.bmiHistory;
+        shouldUseRemoteLogs(localLogs) && remoteState.logs.length ? remoteState.logs : localLogs;
+      const nextTasks = localTasks.length ? localTasks : remoteState.tasks;
+      const nextBmiHistory = localBmiHistory.length ? localBmiHistory : remoteState.bmiHistory;
       const nextStreakHistory =
         baseState.streakHistory.length || !nextProfile
           ? baseState.streakHistory
@@ -457,6 +468,12 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
       return normalizeState({
         ...baseState,
+        session: baseState.session
+          ? {
+              ...baseState.session,
+              userId: resolvedUserId || baseState.session.userId,
+            }
+          : null,
         profile: nextProfile,
         logs: nextLogs,
         tasks: nextTasks,

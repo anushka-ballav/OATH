@@ -1300,8 +1300,169 @@ const sendOtpHandler = async (request, response) => {
 app.post('/api/auth/send-otp', sendOtpHandler);
 app.post('/send-otp', sendOtpHandler);
 
+const normalizeIdentifier = (value) => String(value || '').trim().toLowerCase();
+const toStableUserIdFromIdentifier = (identifier) =>
+  `user-${normalizeIdentifier(identifier).replace(/[^a-z0-9]/g, '').slice(0, 24) || 'email'}`;
+
+const findUserIdByIdentifier = (store, identifier) => {
+  const normalizedIdentifier = normalizeIdentifier(identifier);
+  if (!normalizedIdentifier || !normalizedIdentifier.includes('@')) return '';
+
+  const userMatch = Object.entries(store.users || {}).find(
+    ([, user]) => normalizeIdentifier(user?.email) === normalizedIdentifier,
+  );
+  if (userMatch?.[0]) return userMatch[0];
+
+  const profileMatch = Object.entries(store.profiles || {}).find(
+    ([, profile]) => normalizeIdentifier(profile?.identifier) === normalizedIdentifier,
+  );
+  if (profileMatch?.[0]) return profileMatch[0];
+
+  return '';
+};
+
+const resolveCanonicalUserId = (store, providedUserId, identifier) => {
+  const normalizedIdentifier = normalizeIdentifier(identifier);
+  const byIdentifier = findUserIdByIdentifier(store, normalizedIdentifier);
+  if (byIdentifier) return byIdentifier;
+
+  if (providedUserId && (store.users?.[providedUserId] || store.profiles?.[providedUserId])) {
+    return providedUserId;
+  }
+
+  if (normalizedIdentifier && normalizedIdentifier.includes('@')) {
+    return toStableUserIdFromIdentifier(normalizedIdentifier);
+  }
+
+  return String(providedUserId || '').trim();
+};
+
+const toTimestamp = (value) => {
+  const parsed = new Date(String(value || ''));
+  const timestamp = parsed.getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
+const mergeUserDataIntoCanonical = (store, fromUserId, toUserId) => {
+  if (!fromUserId || !toUserId || fromUserId === toUserId) return;
+
+  const fromProfile = store.profiles?.[fromUserId] ?? null;
+  const toProfile = store.profiles?.[toUserId] ?? null;
+  if (fromProfile) {
+    const useFrom = !toProfile || toTimestamp(fromProfile.updatedAt) >= toTimestamp(toProfile.updatedAt);
+    store.profiles[toUserId] = {
+      ...(useFrom ? toProfile || {} : {}),
+      ...(useFrom ? fromProfile : toProfile),
+      userId: toUserId,
+      identifier: normalizeIdentifier((useFrom ? fromProfile : toProfile)?.identifier || fromProfile.identifier),
+    };
+    delete store.profiles[fromUserId];
+  }
+
+  const fromLogs = store.dailyLogs?.[fromUserId];
+  if (fromLogs && typeof fromLogs === 'object') {
+    store.dailyLogs[toUserId] =
+      store.dailyLogs?.[toUserId] && typeof store.dailyLogs[toUserId] === 'object' ? store.dailyLogs[toUserId] : {};
+
+    for (const [dateKey, entry] of Object.entries(fromLogs)) {
+      const existing = store.dailyLogs[toUserId][dateKey];
+      if (!existing || toTimestamp(entry?.updatedAt) >= toTimestamp(existing?.updatedAt)) {
+        store.dailyLogs[toUserId][dateKey] = entry;
+      }
+    }
+
+    delete store.dailyLogs[fromUserId];
+  }
+
+  const fromTasks = Array.isArray(store.tasks?.[fromUserId]) ? store.tasks[fromUserId] : [];
+  if (fromTasks.length) {
+    const taskMap = new Map();
+    const existingTasks = Array.isArray(store.tasks?.[toUserId]) ? store.tasks[toUserId] : [];
+
+    for (const task of existingTasks) {
+      if (task?.id) taskMap.set(task.id, task);
+    }
+
+    for (const task of fromTasks) {
+      if (!task?.id) continue;
+      const current = taskMap.get(task.id);
+      if (!current || toTimestamp(task.updatedAt) >= toTimestamp(current.updatedAt)) {
+        taskMap.set(task.id, task);
+      }
+    }
+
+    store.tasks[toUserId] = Array.from(taskMap.values());
+    delete store.tasks[fromUserId];
+  }
+
+  const fromBmi = Array.isArray(store.bmi?.[fromUserId]) ? store.bmi[fromUserId] : [];
+  if (fromBmi.length) {
+    const bmiMap = new Map();
+    const existingBmi = Array.isArray(store.bmi?.[toUserId]) ? store.bmi[toUserId] : [];
+
+    for (const entry of existingBmi) {
+      if (entry?.id) bmiMap.set(entry.id, entry);
+    }
+
+    for (const entry of fromBmi) {
+      if (!entry?.id) continue;
+      const current = bmiMap.get(entry.id);
+      if (!current || toTimestamp(entry.measuredAt) >= toTimestamp(current.measuredAt)) {
+        bmiMap.set(entry.id, entry);
+      }
+    }
+
+    store.bmi[toUserId] = Array.from(bmiMap.values());
+    delete store.bmi[fromUserId];
+  }
+
+  const fromReminder = store.reminders?.[fromUserId] ?? null;
+  const toReminder = store.reminders?.[toUserId] ?? null;
+  if (fromReminder) {
+    const useFrom = !toReminder || toTimestamp(fromReminder.updatedAt || fromReminder.lastSentDate) >= toTimestamp(toReminder.updatedAt || toReminder.lastSentDate);
+    if (useFrom) {
+      store.reminders[toUserId] = fromReminder;
+    }
+    delete store.reminders[fromUserId];
+  }
+
+  const fromFriends = store.friendships?.[fromUserId];
+  if (fromFriends && typeof fromFriends === 'object') {
+    store.friendships[toUserId] =
+      store.friendships?.[toUserId] && typeof store.friendships[toUserId] === 'object'
+        ? store.friendships[toUserId]
+        : {};
+
+    for (const [friendUserId, details] of Object.entries(fromFriends)) {
+      store.friendships[toUserId][friendUserId] = details;
+    }
+    delete store.friendships[fromUserId];
+
+    for (const [, bucket] of Object.entries(store.friendships || {})) {
+      if (!bucket || typeof bucket !== 'object') continue;
+      if (!bucket[fromUserId]) continue;
+      bucket[toUserId] = bucket[fromUserId];
+      delete bucket[fromUserId];
+    }
+  }
+
+  const fromUser = store.users?.[fromUserId] ?? null;
+  const toUser = store.users?.[toUserId] ?? null;
+  if (fromUser || toUser) {
+    const now = new Date().toISOString();
+    store.users[toUserId] = {
+      userId: toUserId,
+      email: normalizeIdentifier(toUser?.email || fromUser?.email),
+      name: (toUser?.name || fromUser?.name || null),
+      createdAt: toUser?.createdAt || fromUser?.createdAt || now,
+      updatedAt: now,
+    };
+    delete store.users[fromUserId];
+  }
+};
+
 const verifyOtpHandler = async (request, response) => {
-  const identifier = String(request.body?.identifier || '').trim().toLowerCase();
+  const identifier = normalizeIdentifier(request.body?.identifier);
   const code = String(request.body?.code || '').trim();
   const pending = otpStore.get(identifier);
 
@@ -1310,10 +1471,15 @@ const verifyOtpHandler = async (request, response) => {
   }
 
   otpStore.delete(identifier);
-  const userId = `user-${identifier.replace(/[^a-z0-9]/gi, '').slice(0, 18) || 'email'}`;
   const now = new Date().toISOString();
+  let userId = '';
 
   await updateStore((store) => {
+    userId = resolveCanonicalUserId(store, '', identifier);
+    if (!userId) {
+      userId = toStableUserIdFromIdentifier(identifier);
+    }
+
     const previous = store.users[userId] ?? null;
     store.users[userId] = {
       userId,
@@ -1447,8 +1613,8 @@ const pruneDailyLogs = (store, userId, maxDays = 45) => {
 };
 
 const syncProfileHandler = async (request, response) => {
-  const userId = String(request.body?.userId || '').trim();
-  const identifier = String(request.body?.identifier || '').trim().toLowerCase();
+  const providedUserId = String(request.body?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.body?.identifier);
   const name = String(request.body?.name || '').trim();
   const gender = normalizeGender(request.body?.gender);
   const age = Math.max(0, Math.round(parseNumber(request.body?.age, 0)));
@@ -1460,13 +1626,19 @@ const syncProfileHandler = async (request, response) => {
   const dailyWorkoutMinutes = Math.max(0, Math.round(parseNumber(request.body?.dailyWorkoutMinutes, 0)));
   const dailyTargets = normalizeDailyTargets(request.body?.dailyTargets);
 
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
   if (!identifier || !identifier.includes('@')) return response.status(400).json({ message: 'identifier is required.' });
   if (!dailyTargets) return response.status(400).json({ message: 'dailyTargets is required.' });
 
   const now = new Date().toISOString();
+  let userId = '';
 
   await updateStore((store) => {
+    userId = resolveCanonicalUserId(store, providedUserId, identifier);
+    if (!userId) return;
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(store, providedUserId, userId);
+    }
+
     store.profiles[userId] = {
       userId,
       identifier,
@@ -1486,19 +1658,21 @@ const syncProfileHandler = async (request, response) => {
     upsertUserInStore(store, { userId, email: identifier, name });
   });
 
-  return response.json({ ok: true });
+  if (!userId) return response.status(400).json({ message: 'Unable to resolve account identity.' });
+
+  return response.json({ ok: true, userId });
 };
 
 const syncDailyLogHandler = async (request, response) => {
-  const userId = String(request.body?.userId || '').trim();
-  const identifier = String(request.body?.identifier || '').trim().toLowerCase();
+  const providedUserId = String(request.body?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.body?.identifier);
   const name = String(request.body?.name || '').trim();
   const date = normalizeDateKey(request.body?.date) || toDateKey();
   const log = request.body?.log && typeof request.body.log === 'object' ? request.body.log : null;
 
-  if (!userId) return response.status(400).json({ message: 'userId is required.' });
   if (!identifier || !identifier.includes('@')) return response.status(400).json({ message: 'identifier is required.' });
   if (!log) return response.status(400).json({ message: 'log is required.' });
+  let userId = '';
 
   const customWorkoutEntries = Array.isArray(log.customWorkoutEntries)
     ? log.customWorkoutEntries
@@ -1556,23 +1730,45 @@ const syncDailyLogHandler = async (request, response) => {
   };
 
   await updateStore((store) => {
+    userId = resolveCanonicalUserId(store, providedUserId, identifier);
+    if (!userId) return;
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(store, providedUserId, userId);
+    }
+
     store.dailyLogs[userId] = store.dailyLogs?.[userId] && typeof store.dailyLogs[userId] === 'object' ? store.dailyLogs[userId] : {};
     store.dailyLogs[userId][date] = entry;
     pruneDailyLogs(store, userId);
     upsertUserInStore(store, { userId, email: identifier, name });
   });
 
-  return response.json({ ok: true });
+  if (!userId) return response.status(400).json({ message: 'Unable to resolve account identity.' });
+
+  return response.json({ ok: true, userId });
 };
 
 const getUserStateHandler = async (request, response) => {
-  const userId = String(request.query?.userId || '').trim();
+  const providedUserId = String(request.query?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.query?.identifier);
 
-  if (!userId) {
-    return response.status(400).json({ message: 'userId is required.' });
+  if (!providedUserId && !identifier) {
+    return response.status(400).json({ message: 'userId or identifier is required.' });
   }
 
-  const store = await readStore();
+  const initialStore = await readStore();
+  const userId = resolveCanonicalUserId(initialStore, providedUserId, identifier);
+  if (!userId) {
+    return response.status(404).json({ message: 'Account not found.' });
+  }
+
+  let store = initialStore;
+  if (providedUserId && providedUserId !== userId) {
+    await updateStore((mutableStore) => {
+      mergeUserDataIntoCanonical(mutableStore, providedUserId, userId);
+    });
+    store = await readStore();
+  }
+
   const profile =
     store.profiles?.[userId] && typeof store.profiles[userId] === 'object' ? store.profiles[userId] : null;
   const logBucket =
@@ -1585,6 +1781,7 @@ const getUserStateHandler = async (request, response) => {
   const bmiHistory = Array.isArray(store.bmi?.[userId]) ? store.bmi[userId] : [];
 
   return response.json({
+    userId,
     profile,
     logs,
     tasks,

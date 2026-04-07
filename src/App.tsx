@@ -171,19 +171,18 @@ const App = () => {
     if (!session || !profile) return;
     if (viewport.width >= 1280) return;
 
-    const EDGE_SLOP_PX = 32;
-    const SWIPE_MIN_DISTANCE_PX = 70;
-    const SWIPE_MAX_OFF_AXIS_PX = 55;
+    const SWIPE_MIN_DISTANCE_PX = 74;
+    const SWIPE_MAX_OFF_AXIS_PX = 92;
+    const SWIPE_MAX_DURATION_MS = 700;
+    const SWIPE_HORIZONTAL_DOMINANCE_RATIO = 1.08;
 
     let startX: number | null = null;
     let startY: number | null = null;
     let startTime = 0;
-    let startedFromEdge: 'left' | 'right' | null = null;
 
     const isInteractiveTarget = (target: EventTarget | null) => {
       if (!(target instanceof Element)) return false;
-      const interactiveSelector =
-        'input, textarea, select, button, a, [role="button"], [contenteditable="true"], [data-no-swipe]';
+      const interactiveSelector = 'input, textarea, select, [contenteditable="true"], [data-no-swipe]';
       return Boolean(target.closest(interactiveSelector));
     };
 
@@ -195,19 +194,10 @@ const App = () => {
       startX = touch.clientX;
       startY = touch.clientY;
       startTime = Date.now();
-
-      if (touch.clientX <= EDGE_SLOP_PX) startedFromEdge = 'left';
-      else if (touch.clientX >= viewport.width - EDGE_SLOP_PX) startedFromEdge = 'right';
-      else startedFromEdge = null;
     };
 
     const handleTouchEnd = (event: TouchEvent) => {
       if (startX == null || startY == null) return;
-      if (!startedFromEdge) {
-        startX = null;
-        startY = null;
-        return;
-      }
 
       const touch = event.changedTouches[0];
       const deltaX = touch.clientX - startX;
@@ -222,18 +212,22 @@ const App = () => {
 
       if (absX < SWIPE_MIN_DISTANCE_PX) return;
       if (absY > SWIPE_MAX_OFF_AXIS_PX) return;
-      if (elapsedMs > 650) return;
+      if (absX < absY * SWIPE_HORIZONTAL_DOMINANCE_RATIO) return;
+      if (elapsedMs > SWIPE_MAX_DURATION_MS) return;
 
-      if (startedFromEdge === 'left' && deltaX > 0) {
+      if (isMobileNavOpen) {
+        if (deltaX > 0 || deltaX < 0) {
+          setIsMobileNavOpen(false);
+        }
+        return;
+      }
+
+      if (deltaX > 0) {
         setIsMobileNavOpen(true);
         return;
       }
 
-      if (startedFromEdge === 'right' && deltaX < 0) {
-        if (isMobileNavOpen) {
-          setIsMobileNavOpen(false);
-          return;
-        }
+      if (deltaX < 0) {
         if (tab === 'profile') {
           setProfileSwipeTopResetKey((previous) => previous + 1);
           setSwipeProfilePhase('enter');
