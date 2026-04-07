@@ -43,3 +43,31 @@ export const saveUserState = (userId: string, state: UserScopedState) => {
 export const clearUserState = (userId: string) => {
   window.localStorage.removeItem(getUserStorageKey(userId));
 };
+
+export type ExportedAppStateBundle = {
+  version: 1;
+  exportedAt: string;
+  global: GlobalState | null;
+  user: UserScopedState | null;
+};
+
+export const exportStateBundle = (userId: string): ExportedAppStateBundle => {
+  const global = loadGlobalState();
+  const user = loadUserState(userId);
+
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    global,
+    user,
+  };
+};
+
+export const importStateBundle = (userId: string, bundle: ExportedAppStateBundle) => {
+  if (!bundle || bundle.version !== 1) {
+    throw new Error('Unsupported export file.');
+  }
+
+  if (bundle.global) saveGlobalState(bundle.global);
+  if (bundle.user) saveUserState(userId, bundle.user);
+};

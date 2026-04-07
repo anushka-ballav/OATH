@@ -24,6 +24,8 @@ export const syncProfileToServer = async (session: UserSession, profile: UserPro
     weight: profile.weight,
     goal: profile.goal,
     dailyAvailableHours: profile.dailyAvailableHours,
+    dailyStudyHours: profile.dailyStudyHours,
+    dailyWorkoutMinutes: profile.dailyWorkoutMinutes,
     dailyTargets: profile.dailyTargets,
   });
 };

@@ -156,7 +156,7 @@ const LeaderboardRow = ({
           ) : null}
         </div>
 
-        <div className="mt-3 grid gap-2 text-sm text-black/80 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-3 grid gap-2 text-sm text-black/80 dark:text-orange-100/80 sm:grid-cols-2 xl:grid-cols-4">
           <p>{entry.questsCompleted || 0}/{entry.questCount || 5} quests complete</p>
           <p>{entry.streakDays || 0} day streak</p>
           <p>{entry.weeklyWins || 0} strong days this week</p>
@@ -218,7 +218,7 @@ const MetricCard = ({
 );
 
 export const LeaderboardPage = () => {
-  const { session, profile, currentLog } = useApp();
+  const { session, profile, currentLog, markEasterEggFound } = useApp();
   const [globalEntries, setGlobalEntries] = useState<LeaderboardEntry[]>([]);
   const [friendEntries, setFriendEntries] = useState<LeaderboardEntry[]>([]);
   const [activeInvite, setActiveInvite] = useState<LeaderboardInvite | null>(null);
@@ -611,7 +611,7 @@ export const LeaderboardPage = () => {
 
           <div className="mt-5 rounded-[24px] border border-orange-400/20 bg-white/70 p-4 dark:bg-white/5">
             <p className="text-xs uppercase tracking-[0.18em] text-black/60 dark:text-orange-100/75">Share Link</p>
-            <div className="mt-3 rounded-[18px] border border-orange-400/20 bg-black/5 px-4 py-4 text-sm text-black dark:bg-black/20 dark:text-orange-50">
+            <div className="mt-3 rounded-[18px] border border-orange-400/20 bg-black/5 px-4 py-4 text-sm text-black [overflow-wrap:anywhere] dark:bg-black/20 dark:text-orange-50">
               {activeInvite?.inviteUrl || 'Generating a challenge link...'}
             </div>
 
@@ -644,7 +644,12 @@ export const LeaderboardPage = () => {
               </div>
               <div className="soft-surface rounded-[20px] px-4 py-3">
                 <p className="text-xs uppercase tracking-[0.18em] text-black/60 dark:text-orange-100/75">Code</p>
-                <p className="mt-2 text-lg font-semibold text-black">{activeInvite?.code.toUpperCase() || '--'}</p>
+                <p
+                  className="mt-2 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold text-black"
+                  title={activeInvite?.code?.toUpperCase() || '--'}
+                >
+                  {activeInvite?.code.toUpperCase() || '--'}
+                </p>
               </div>
               <div className="soft-surface rounded-[20px] px-4 py-3">
                 <p className="text-xs uppercase tracking-[0.18em] text-black/60 dark:text-orange-100/75">Expires</p>
@@ -739,7 +744,14 @@ export const LeaderboardPage = () => {
         <CardShell>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-black">Global Arena</p>
+              <button
+                type="button"
+                onClick={() => markEasterEggFound('arena-title')}
+                className="text-left"
+                title="Global Arena"
+              >
+                <p className="text-sm uppercase tracking-[0.24em] text-black">Global Arena</p>
+              </button>
               <p className="muted-text mt-1 text-sm">Everyone who has synced activity is ranked here automatically.</p>
             </div>
             <span className="self-start rounded-full border border-orange-400/25 bg-orange-500/15 px-3 py-1 text-xs font-semibold text-orange-100 sm:self-auto">
@@ -749,7 +761,7 @@ export const LeaderboardPage = () => {
 
           <div className="mt-4 space-y-3">
             {rankedGlobal.length ? (
-              rankedGlobal.map((entry) => (
+              rankedGlobal.slice(0, 3).map((entry) => (
                 <LeaderboardRow key={entry.userId || entry.id} entry={entry} tone="global" />
               ))
             ) : (

@@ -778,6 +778,191 @@ const buildLocalCompanionReply = ({ message, profile, dailyLog, recentMessages }
   return pick(variants.general);
 };
 
+const estimateExerciseCalories = ({ weightKg, durationMinutes }) => {
+  const safeWeight = Math.max(35, parseNumber(weightKg, 70));
+  const safeMinutes = Math.max(5, Math.round(parseNumber(durationMinutes, 15)));
+  const moderateMet = 6.2;
+  return Math.max(30, Math.round(((moderateMet * 3.5 * safeWeight) / 200) * safeMinutes));
+};
+
+const sanitizeExerciseName = (value) =>
+  String(value || '')
+    .replace(/\b\d+(\.\d+)?\s*(kcal|cal(?:ories)?|cals?)\b/gi, ' ')
+    .replace(/\b\d+(\.\d+)?\s*(min|mins|minute|minutes)\b/gi, ' ')
+    .replace(
+      /\b(add|include|append|put|to|into|in|my|the|daily|today|workout|exercise|routine|plan|please|log|logged|i|did|done|completed|finished)\b/gi,
+      ' ',
+    )
+    .replace(/[^a-z0-9\s-]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const parseExerciseFromSegment = ({ segment, profile, defaultMinutes = 15 }) => {
+  const raw = String(segment || '').trim();
+  if (!raw) return null;
+
+  const minutesMatch = raw.match(/(\d+(\.\d+)?)\s*(min|mins|minute|minutes)\b/i);
+  const caloriesMatch = raw.match(/(\d+(\.\d+)?)\s*(kcal|cal(?:ories)?|cals?)\b/i);
+
+  const durationMinutes = Math.max(5, Math.round(parseNumber(minutesMatch?.[1], defaultMinutes)));
+  const inferredName = sanitizeExerciseName(raw);
+  const name = inferredName || 'Extra exercise';
+  const caloriesBurned = Math.max(
+    20,
+    Math.round(
+      parseNumber(
+        caloriesMatch?.[1],
+        estimateExerciseCalories({
+          weightKg: profile?.weight,
+          durationMinutes,
+        }),
+      ),
+    ),
+  );
+
+  return {
+    name,
+    durationMinutes,
+    caloriesBurned,
+  };
+};
+
+const splitExerciseSegments = (text) =>
+  String(text || '')
+    .replace(/\s+/g, ' ')
+    .split(/\s*,\s*|\s+and\s+|;/i)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+const extractActionSegments = (message, mode) => {
+  const source = String(message || '').trim();
+  if (!source) return [];
+
+  const addMatch = source.match(/\b(add|include|append|put)\b/i);
+  const doneMatch = source.match(/\b(done|completed|finished|logged|log)\b/i);
+  const removeMatch = source.match(/\b(remove|delete|undo)\b/i);
+
+  if (mode === 'add' && addMatch?.index !== undefined) {
+    return splitExerciseSegments(source.slice(addMatch.index + addMatch[0].length));
+  }
+
+  if (mode === 'done' && doneMatch?.index !== undefined) {
+    return splitExerciseSegments(source.slice(doneMatch.index + doneMatch[0].length));
+  }
+
+  if (mode === 'remove' && removeMatch?.index !== undefined) {
+    return splitExerciseSegments(source.slice(removeMatch.index + removeMatch[0].length));
+  }
+
+  return splitExerciseSegments(source);
+};
+
+const dedupeWorkoutExercises = (entries) => {
+  const used = new Set();
+  return entries.filter((entry) => {
+    const key = `${entry.name.toLowerCase()}::${entry.durationMinutes}`;
+    if (used.has(key)) return false;
+    used.add(key);
+    return true;
+  });
+};
+
+const parseCompanionWorkoutActions = ({ message, profile }) => {
+  const normalizedMessage = String(message || '').toLowerCase();
+  const looksLikeQuestion = normalizedMessage.includes('?') || /\b(what|how|why|suggest|recommend)\b/.test(normalizedMessage);
+  const hasWorkoutKeyword = /\b(workout|exercise|routine|plan|daily|training)\b/.test(normalizedMessage);
+  const hasDurationMention = /\b\d+(\.\d+)?\s*(min|mins|minute|minutes|ins)\b/.test(normalizedMessage);
+  const hasExerciseKeyword =
+    /\b(cycle|cycling|bike|biking|run|running|walk|walking|jog|jogging|rope|skipping|jump rope|yoga|push[- ]?up|squat|lunge|plank|burpee|hiit|cardio|swim|swimming|dance|stairs?|mountain climber)\b/.test(
+      normalizedMessage,
+    );
+  const addIntent =
+    /\b(add|include|append|put)\b/.test(normalizedMessage) &&
+    (hasWorkoutKeyword || hasDurationMention || hasExerciseKeyword) &&
+    !looksLikeQuestion;
+  const doneIntent =
+    /\b(done|completed|finished|logged|log)\b/.test(normalizedMessage) &&
+    (hasWorkoutKeyword || hasDurationMention || hasExerciseKeyword) &&
+    !looksLikeQuestion;
+  const removeIntent =
+    /\b(remove|delete|undo)\b/.test(normalizedMessage) &&
+    (hasWorkoutKeyword || hasDurationMention || hasExerciseKeyword) &&
+    !looksLikeQuestion;
+
+  const actions = [];
+
+  if (addIntent) {
+    const exercises = dedupeWorkoutExercises(
+      extractActionSegments(message, 'add')
+        .map((segment) =>
+          parseExerciseFromSegment({
+            segment,
+            profile,
+            defaultMinutes: 15,
+          }),
+        )
+        .filter(Boolean)
+        .slice(0, 5),
+    );
+
+    if (exercises.length) {
+      actions.push({
+        type: 'add_workout_exercises',
+        exercises,
+      });
+    }
+  }
+
+  if (doneIntent) {
+    const exercises = dedupeWorkoutExercises(
+      extractActionSegments(message, 'done')
+        .map((segment) =>
+          parseExerciseFromSegment({
+            segment,
+            profile,
+            defaultMinutes: 20,
+          }),
+        )
+        .filter(Boolean)
+        .slice(0, 4),
+    );
+
+    for (const exercise of exercises) {
+      actions.push({
+        type: 'log_completed_workout',
+        exercise,
+      });
+    }
+  }
+
+  if (removeIntent) {
+    const exercises = dedupeWorkoutExercises(
+      extractActionSegments(message, 'remove')
+        .map((segment) =>
+          parseExerciseFromSegment({
+            segment,
+            profile,
+            defaultMinutes: 20,
+          }),
+        )
+        .filter(Boolean)
+        .slice(0, 5),
+    );
+
+    if (exercises.length) {
+      actions.push({
+        type: 'remove_workout_exercises',
+        exercises: exercises.map((exercise) => ({
+          name: exercise.name,
+          durationMinutes: exercise.durationMinutes,
+        })),
+      });
+    }
+  }
+
+  return actions;
+};
+
 const extractJsonObject = (text) => {
   const trimmed = String(text || '').trim();
   const start = trimmed.indexOf('{');
@@ -886,6 +1071,151 @@ const buildCompanionRequestBody = (model, messages, maxCompletionTokens = 320) =
   }
 
   return base;
+};
+
+const toChecklistItemId = (label, index) =>
+  String(label || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || `task-${index + 1}`;
+
+const distributeMinutes = (totalMinutes, ratios) => {
+  const safeTotal = Math.max(ratios.length, Math.round(parseNumber(totalMinutes, ratios.length)));
+  const ratioSum = ratios.reduce((sum, ratio) => sum + Math.max(0, parseNumber(ratio, 0)), 0) || 1;
+  const raw = ratios.map((ratio) => (safeTotal * Math.max(0, parseNumber(ratio, 0))) / ratioSum);
+  const minutes = raw.map((value) => Math.floor(value));
+  let remainder = safeTotal - minutes.reduce((sum, value) => sum + value, 0);
+
+  const orderByFraction = raw
+    .map((value, index) => ({
+      index,
+      fraction: value - Math.floor(value),
+    }))
+    .sort((first, second) => second.fraction - first.fraction);
+
+  for (let index = 0; index < orderByFraction.length && remainder > 0; index += 1) {
+    minutes[orderByFraction[index].index] += 1;
+    remainder -= 1;
+  }
+
+  return minutes;
+};
+
+const withMinutesLabel = (minutes, text) => `${minutes} minute${minutes === 1 ? '' : 's'} ${text}`;
+const parseMinutesFromTaskLabel = (label) => {
+  const match = String(label || '').trim().match(/^(\d+)\s*(?:min|mins|minute|minutes)\b/i);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  return Number.isFinite(minutes) ? Math.max(0, Math.round(minutes)) : null;
+};
+
+const buildFallbackWorkoutPlan = ({ goal, workoutMinutes, estimatedCaloriesBurned }) => {
+  const durations = distributeMinutes(workoutMinutes, [0.1, 0.35, 0.4, 0.15]);
+
+  if (goal === 'Lose Fat') {
+    return {
+      title: 'Daily fat-loss session',
+      summary: `Use ${workoutMinutes} minutes for high-consistency movement and controlled effort. Complete all steps to log about ${estimatedCaloriesBurned} kcal burned.`,
+      dailyChecklist: [
+        { id: 'warmup', label: withMinutesLabel(durations[0], 'warm-up walk or marching') },
+        { id: 'strength', label: withMinutesLabel(durations[1], 'bodyweight strength: squats, push-ups, lunges') },
+        { id: 'cardio', label: withMinutesLabel(durations[2], 'brisk walk, cycle, jog, or skipping') },
+        { id: 'core', label: withMinutesLabel(durations[3], 'core and cooldown stretch') },
+      ],
+      estimatedCaloriesBurned,
+      recoveryTip: 'Keep pace steady, hydrate after the session, and sleep on time to protect consistency.',
+    };
+  }
+
+  if (goal === 'Gain Muscle') {
+    return {
+      title: 'Daily muscle-building session',
+      summary: `Use ${workoutMinutes} minutes for progressive resistance and controlled reps. Complete all steps to log about ${estimatedCaloriesBurned} kcal burned.`,
+      dailyChecklist: [
+        { id: 'warmup', label: withMinutesLabel(durations[0], 'mobility and warm-up sets') },
+        { id: 'compound', label: withMinutesLabel(durations[1], 'compound strength work (push, pull, squat)') },
+        { id: 'accessory', label: withMinutesLabel(durations[2], 'accessory isolation movements') },
+        { id: 'cooldown', label: withMinutesLabel(durations[3], 'cooldown and recovery breathing') },
+      ],
+      estimatedCaloriesBurned,
+      recoveryTip: 'Prioritize protein intake and add rest between hard sessions for the same muscle group.',
+    };
+  }
+
+  return {
+    title: 'Daily fitness maintenance session',
+    summary: `Use ${workoutMinutes} minutes for a balanced mix of mobility, strength, and light cardio. Complete all steps to log about ${estimatedCaloriesBurned} kcal burned.`,
+    dailyChecklist: [
+      { id: 'warmup', label: withMinutesLabel(durations[0], 'warm-up and joint mobility') },
+      { id: 'strength', label: withMinutesLabel(durations[1], 'full-body strength circuit') },
+      { id: 'cardio', label: withMinutesLabel(durations[2], 'light cardio or brisk walk') },
+      { id: 'cooldown', label: withMinutesLabel(durations[3], 'stretch and breathing cooldown') },
+    ],
+    estimatedCaloriesBurned,
+    recoveryTip: 'Keep intensity moderate and focus on consistency over intensity spikes.',
+  };
+};
+
+const normalizeAiWorkoutPlan = ({ parsed, fallback }) => {
+  const title =
+    typeof parsed?.title === 'string' && parsed.title.trim()
+      ? parsed.title.trim().slice(0, 120)
+      : fallback.title;
+  const summary =
+    typeof parsed?.summary === 'string' && parsed.summary.trim()
+      ? parsed.summary.trim().slice(0, 420)
+      : fallback.summary;
+  const recoveryTip =
+    typeof parsed?.recoveryTip === 'string' && parsed.recoveryTip.trim()
+      ? parsed.recoveryTip.trim().slice(0, 220)
+      : fallback.recoveryTip;
+  const estimatedCaloriesBurned = Math.max(
+    0,
+    Math.round(parseNumber(parsed?.estimatedCaloriesBurned, fallback.estimatedCaloriesBurned)),
+  );
+  const checklistRaw = Array.isArray(parsed?.dailyChecklist)
+    ? parsed.dailyChecklist
+    : Array.isArray(parsed?.tasks)
+      ? parsed.tasks
+      : [];
+  const checklist = checklistRaw
+    .map((entry, index) => {
+      const label =
+        typeof entry === 'string'
+          ? entry.trim()
+          : typeof entry?.label === 'string'
+            ? entry.label.trim()
+            : '';
+      if (!label) return null;
+      return {
+        id:
+          typeof entry?.id === 'string' && entry.id.trim()
+            ? entry.id.trim().slice(0, 64)
+            : toChecklistItemId(label, index),
+        label: label.slice(0, 160),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+
+  const fallbackMinutesTotal = fallback.dailyChecklist.reduce(
+    (sum, task) => sum + (parseMinutesFromTaskLabel(task.label) || 0),
+    0,
+  );
+  const checklistMinutes = checklist.map((task) => parseMinutesFromTaskLabel(task.label));
+  const hasExactMinuteSum =
+    checklistMinutes.length > 0 &&
+    checklistMinutes.every((value) => value !== null) &&
+    checklistMinutes.reduce((sum, value) => sum + Number(value), 0) === fallbackMinutesTotal;
+
+  return {
+    title,
+    summary,
+    dailyChecklist: checklist.length && hasExactMinuteSum ? checklist : fallback.dailyChecklist,
+    estimatedCaloriesBurned,
+    recoveryTip,
+  };
 };
 
 const sendOtpHandler = async (request, response) => {
@@ -1126,6 +1456,8 @@ const syncProfileHandler = async (request, response) => {
   const weight = Math.max(0, Math.round(parseNumber(request.body?.weight, 0)));
   const goal = String(request.body?.goal || '').trim() || 'Maintain';
   const dailyAvailableHours = Math.max(0, parseNumber(request.body?.dailyAvailableHours, 0));
+  const dailyStudyHours = Math.max(0, parseNumber(request.body?.dailyStudyHours, 0));
+  const dailyWorkoutMinutes = Math.max(0, Math.round(parseNumber(request.body?.dailyWorkoutMinutes, 0)));
   const dailyTargets = normalizeDailyTargets(request.body?.dailyTargets);
 
   if (!userId) return response.status(400).json({ message: 'userId is required.' });
@@ -1145,6 +1477,8 @@ const syncProfileHandler = async (request, response) => {
       weight,
       goal,
       dailyAvailableHours,
+      dailyStudyHours,
+      dailyWorkoutMinutes,
       dailyTargets,
       updatedAt: now,
     };
@@ -1180,6 +1514,7 @@ const syncDailyLogHandler = async (request, response) => {
             typeof entry?.createdAt === 'string' && entry.createdAt
               ? entry.createdAt
               : new Date().toISOString(),
+          source: entry?.source === 'companion' ? 'companion' : 'manual',
         }))
         .filter((entry) => entry.caloriesBurned > 0)
     : [];
@@ -1931,11 +2266,104 @@ app.post('/api/reset', async (request, response) => {
   return response.json({ ok: true });
 });
 
+app.post('/api/ai/workout-plan', async (request, response) => {
+  const profile = request.body?.profile && typeof request.body.profile === 'object' ? request.body.profile : {};
+  const dailyTargets = request.body?.dailyTargets && typeof request.body.dailyTargets === 'object' ? request.body.dailyTargets : {};
+  const goal = String(profile?.goal || 'Maintain').trim() || 'Maintain';
+  const workoutMinutes = Math.max(15, Math.round(parseNumber(dailyTargets?.workoutMinutes, profile?.dailyWorkoutMinutes || 45)));
+  const estimatedCaloriesBurned = Math.max(
+    120,
+    Math.round(parseNumber(dailyTargets?.workoutPlan?.estimatedCaloriesBurned, workoutMinutes * 6)),
+  );
+  const fallback = buildFallbackWorkoutPlan({
+    goal,
+    workoutMinutes,
+    estimatedCaloriesBurned,
+  });
+
+  refreshEnv();
+
+  if (!isGroqConfigured()) {
+    return response.json({
+      source: 'local-fallback',
+      workoutPlan: fallback,
+    });
+  }
+
+  try {
+    const userContext = [
+      `Goal: ${goal}`,
+      `Age: ${Math.max(0, Math.round(parseNumber(profile?.age, 0)))}`,
+      `Gender: ${String(profile?.gender || 'Other')}`,
+      `Weight: ${Math.max(0, Math.round(parseNumber(profile?.weight, 0)))} kg`,
+      `Height: ${Math.max(0, Math.round(parseNumber(profile?.height, 0)))} cm`,
+      `Daily study hours: ${parseNumber(profile?.dailyStudyHours, parseNumber(dailyTargets?.studyHours, 3))}`,
+      `Daily workout minutes target: ${workoutMinutes}`,
+      `Calories target: ${Math.max(0, Math.round(parseNumber(dailyTargets?.calories, 0)))}`,
+    ].join('\n');
+
+    const messages = [
+      {
+        role: 'system',
+        content:
+          'You are a certified fitness planner. Return ONLY valid JSON object with keys: title (string), summary (string), dailyChecklist (array of 4-6 short task strings), estimatedCaloriesBurned (number), recoveryTip (string). No markdown, no extra text.',
+      },
+      {
+        role: 'system',
+        content:
+          `Constraints: keep tasks safe for general users, balanced for the stated goal, and achievable in the given workout minutes. Every checklist task must begin with "<minutes> minutes ...", and the total minutes across all checklist items must equal exactly ${workoutMinutes}. Keep each task concise and practical.`,
+      },
+      {
+        role: 'user',
+        content: `Create today workout plan for this user.\n${userContext}`,
+      },
+    ];
+
+    const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify(buildCompanionRequestBody(getGroqModel('general'), messages, 420)),
+    });
+
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text();
+      throw new Error(errorText || 'Groq workout plan request failed');
+    }
+
+    const data = await aiResponse.json();
+    const text = extractGroqChatText(data) || extractGroqResponseText(data);
+    if (!text) {
+      throw new Error('Groq workout plan returned no readable text.');
+    }
+
+    const parsed = extractJsonObject(text);
+    const workoutPlan = normalizeAiWorkoutPlan({
+      parsed,
+      fallback,
+    });
+
+    return response.json({
+      source: 'groq',
+      workoutPlan,
+    });
+  } catch (error) {
+    console.error('Groq workout plan request failed', error);
+    return response.json({
+      source: 'groq-error',
+      workoutPlan: fallback,
+    });
+  }
+});
+
 app.post('/api/ai/companion', async (request, response) => {
   const message = String(request.body?.message || '').trim();
   const profile = request.body?.profile ?? null;
   const dailyLog = request.body?.dailyLog ?? null;
   const conversation = Array.isArray(request.body?.conversation) ? request.body.conversation : [];
+  const actions = parseCompanionWorkoutActions({ message, profile });
 
   if (!message) {
     return response.status(400).json({ message: 'Message is required.' });
@@ -1952,6 +2380,7 @@ app.post('/api/ai/companion', async (request, response) => {
         recentMessages: conversation,
       }),
       source: 'local-fallback',
+      actions,
     });
   }
 
@@ -2048,6 +2477,7 @@ app.post('/api/ai/companion', async (request, response) => {
     return response.json({
       reply,
       source: 'groq',
+      actions,
     });
   } catch (error) {
     console.error('Groq companion request failed', error);

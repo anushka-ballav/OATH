@@ -44,6 +44,8 @@ export interface UserProfile {
   weight: number;
   goal: GoalType;
   dailyAvailableHours: number;
+  dailyStudyHours?: number;
+  dailyWorkoutMinutes?: number;
   dailyTargets: DailyTargets;
 }
 
@@ -60,6 +62,7 @@ export interface CustomWorkoutEntry {
   durationMinutes: number;
   caloriesBurned: number;
   createdAt: string;
+  source?: 'manual' | 'companion';
 }
 
 export interface DailyLog {
@@ -189,4 +192,6 @@ export interface AppState {
   notifications: NotificationItem[];
   leaderboard: LeaderboardEntry[];
   darkMode: boolean;
+  easterEggsFound?: string[];
+  achievementsUnlocked?: string[];
 }

@@ -17,7 +17,8 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
     height: 170,
     weight: 70,
     goal: 'Maintain' as UserProfile['goal'],
-    dailyAvailableHours: 4,
+    dailyStudyHours: 3,
+    dailyWorkoutMinutes: 45,
   });
 
   const handleSubmit = async (event: FormEvent) => {
@@ -26,7 +27,19 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
 
     try {
       savePreferredGender(form.gender);
-      await onSubmit(form);
+      const dailyStudyHours = Number.isFinite(form.dailyStudyHours)
+        ? Math.min(10, Math.max(1, form.dailyStudyHours))
+        : 3;
+      const dailyWorkoutMinutes = Number.isFinite(form.dailyWorkoutMinutes)
+        ? Math.min(180, Math.max(15, Math.round(form.dailyWorkoutMinutes)))
+        : 45;
+      const dailyAvailableHours = Math.min(12, Math.max(1, dailyStudyHours + dailyWorkoutMinutes / 60));
+      await onSubmit({
+        ...form,
+        dailyStudyHours,
+        dailyWorkoutMinutes,
+        dailyAvailableHours,
+      });
     } finally {
       setLoading(false);
     }
@@ -86,15 +99,29 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
         </label>
 
         <label>
-          <span className="mb-2 block text-sm font-medium">Daily available time (hours)</span>
+          <span className="mb-2 block text-sm font-medium">Daily study time (hours)</span>
           <input
             type="number"
             min={1}
-            max={12}
-            value={form.dailyAvailableHours}
+            max={10}
+            step={0.5}
+            value={form.dailyStudyHours}
             onChange={(event) =>
-              setForm((prev) => ({ ...prev, dailyAvailableHours: Number(event.target.value) }))
+              setForm((prev) => ({ ...prev, dailyStudyHours: Number(event.target.value) }))
             }
+            className="w-full rounded-2xl border border-black/10 bg-white/80 px-4 py-3 outline-none focus:border-clay dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50"
+          />
+        </label>
+
+        <label>
+          <span className="mb-2 block text-sm font-medium">Daily workout time (minutes)</span>
+          <input
+            type="number"
+            min={15}
+            max={180}
+            step={5}
+            value={form.dailyWorkoutMinutes}
+            onChange={(event) => setForm((prev) => ({ ...prev, dailyWorkoutMinutes: Number(event.target.value) }))}
             className="w-full rounded-2xl border border-black/10 bg-white/80 px-4 py-3 outline-none focus:border-clay dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50"
           />
         </label>

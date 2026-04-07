@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { Pause, Play, Square, BookOpenText } from 'lucide-react';
 import { formatMinutes } from '../lib/date';
 import { percent } from '../lib/utils';
@@ -126,11 +126,16 @@ export const StudyTimerCard = ({ onSave, todayMinutes = 0, goalMinutes = 0 }: St
     if (!sessionSeconds || isSaving) return;
 
     const minutes = Math.max(1, Math.round(sessionSeconds / 60));
+
+    // Reset immediately so the timer returns to 00:00 as soon as save is tapped.
+    setTimerState(defaultStudyTimerState);
+    setNowMs(Date.now());
     setIsSaving(true);
 
     try {
       await onSave(minutes);
-      setTimerState(defaultStudyTimerState);
+    } catch {
+      // Keep UI reset for a smooth flow; persistence retries happen elsewhere.
     } finally {
       setIsSaving(false);
     }
@@ -177,8 +182,9 @@ export const StudyTimerCard = ({ onSave, todayMinutes = 0, goalMinutes = 0 }: St
       </button>
 
       <p className="muted-text mt-3 text-center text-sm">
-        Total today: {formatMinutes(todayMinutes)} • {goalMinutes ? `${percent(todayMinutes, goalMinutes)}% of goal` : 'No goal'}
+        Total today: {formatMinutes(todayMinutes)} - {goalMinutes ? `${percent(todayMinutes, goalMinutes)}% of goal` : 'No goal'}
       </p>
     </CardShell>
   );
 };
+

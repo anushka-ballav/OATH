@@ -1,12 +1,116 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, SendHorizonal } from 'lucide-react';
 import { CardShell } from '../components/CardShell';
 import { useApp } from '../context/AppContext';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+type CompanionExercise = {
+  name: string;
+  durationMinutes: number;
+  caloriesBurned: number;
+};
+
+type CompanionAction =
+  | {
+      type: 'add_workout_exercises';
+      exercises: CompanionExercise[];
+    }
+  | {
+      type: 'remove_workout_exercises';
+      exercises: Array<{ name: string; durationMinutes?: number }>;
+    }
+  | {
+      type: 'log_completed_workout';
+      exercise: CompanionExercise;
+    };
+
+type QuickWorkoutCommand =
+  | {
+      type: 'add';
+      exercise: CompanionExercise;
+    }
+  | {
+      type: 'remove';
+      exercise: { name: string; durationMinutes?: number };
+    };
+
+const normalizeExerciseName = (value: string) =>
+  String(value || '')
+    .replace(/[^a-z0-9\s-]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const estimateWorkoutCalories = (weightKg: number, durationMinutes: number) => {
+  const safeWeight = Math.max(35, Math.round(weightKg || 70));
+  const safeMinutes = Math.max(5, Math.round(durationMinutes));
+  const moderateMet = 6.2;
+  return Math.max(30, Math.round(((moderateMet * 3.5 * safeWeight) / 200) * safeMinutes));
+};
+
+const parseQuickWorkoutCommand = (input: string, weightKg: number): QuickWorkoutCommand | null => {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+
+  const normalized = raw.toLowerCase();
+  const addMatch = normalized.match(/\b(add|include|append|put)\b/);
+  const removeMatch = normalized.match(/\b(remove|delete|undo)\b/);
+  const minutesMatch = raw.match(/(\d+(\.\d+)?)\s*(min|mins|minute|minutes|ins)\b/i);
+  const caloriesMatch = raw.match(/(\d+(\.\d+)?)\s*(kcal|cal(?:ories)?|cals?)\b/i);
+
+  const extractName = (commandWord: string) =>
+    normalizeExerciseName(
+      raw
+        .replace(new RegExp(`\\b${commandWord}\\b`, 'i'), ' ')
+        .replace(/(\d+(\.\d+)?)\s*(min|mins|minute|minutes|ins)\b/gi, ' ')
+        .replace(/(\d+(\.\d+)?)\s*(kcal|cal(?:ories)?|cals?)\b/gi, ' ')
+        .replace(/\b(workout|exercise|routine|plan|daily|today|to|my|the|from)\b/gi, ' '),
+    );
+
+  if (addMatch) {
+    const durationMinutes = Math.max(1, Math.round(Number(minutesMatch?.[1]) || 0));
+    const name = extractName(addMatch[1]);
+    if (!name || !durationMinutes) return null;
+    const caloriesBurned = Math.max(
+      1,
+      Math.round(Number(caloriesMatch?.[1]) || estimateWorkoutCalories(weightKg, durationMinutes)),
+    );
+
+    return {
+      type: 'add',
+      exercise: {
+        name,
+        durationMinutes,
+        caloriesBurned,
+      },
+    };
+  }
+
+  if (removeMatch) {
+    const name = extractName(removeMatch[1]);
+    if (!name) return null;
+    const durationMinutes = minutesMatch?.[1] ? Math.max(1, Math.round(Number(minutesMatch[1]))) : undefined;
+    return {
+      type: 'remove',
+      exercise: {
+        name,
+        durationMinutes,
+      },
+    };
+  }
+
+  return null;
+};
+
 export const AICompanionPage = () => {
-  const { profile, currentLog } = useApp();
+  const {
+    profile,
+    currentLog,
+    markEasterEggFound,
+    addWorkoutExercises,
+    removeWorkoutExercises,
+    addCustomWorkoutEntry,
+  } = useApp();
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('AI is ready. Add your Groq key to use the smarter companion.');
@@ -24,13 +128,74 @@ export const AICompanionPage = () => {
 
   if (!profile) return null;
 
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [conversation.length, loading]);
+
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
 
+    if (trimmed.toLowerCase().replace(/\s+/g, ' ') === 'up up down down left right left right') {
+      markEasterEggFound('konami-companion');
+    }
+
     const nextConversation = [...conversation, { role: 'user' as const, text: trimmed }];
     setConversation(nextConversation);
     setMessage('');
+    const quickCommand = parseQuickWorkoutCommand(trimmed, profile.weight);
+
+    if (quickCommand) {
+      setLoading(true);
+      try {
+        if (quickCommand.type === 'add') {
+          const addedCount = await addWorkoutExercises([quickCommand.exercise]);
+          if (addedCount > 0) {
+            await addCustomWorkoutEntry(
+              quickCommand.exercise.name,
+              quickCommand.exercise.durationMinutes,
+              quickCommand.exercise.caloriesBurned,
+              'companion',
+            );
+            const doneText = `Done. Added ${quickCommand.exercise.durationMinutes} min ${quickCommand.exercise.name} to today's workout and logged ${quickCommand.exercise.caloriesBurned} kcal in custom workouts.`;
+            setConversation((prev) => [...prev, { role: 'assistant', text: doneText }]);
+            setStatus('Done: workout updated.');
+          } else {
+            setConversation((prev) => [
+              ...prev,
+              { role: 'assistant', text: 'That workout is already present, so I did not add a duplicate.' },
+            ]);
+            setStatus('No changes made.');
+          }
+          return;
+        }
+
+        const removedCount = await removeWorkoutExercises([quickCommand.exercise]);
+        const removeText =
+          removedCount > 0
+            ? `Done. Removed ${quickCommand.exercise.durationMinutes ? `${quickCommand.exercise.durationMinutes} min ` : ''}${quickCommand.exercise.name} from companion-added workouts.`
+            : 'I could not find that companion-added workout to remove.';
+        setConversation((prev) => [...prev, { role: 'assistant', text: removeText }]);
+        setStatus(removedCount > 0 ? 'Done: workout removed.' : 'No matching companion workout found.');
+        return;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unable to process workout command.';
+        setConversation((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: `I could not process that workout command: ${errorMessage}`,
+          },
+        ]);
+        setStatus(`Companion error: ${errorMessage}`);
+        return;
+      } finally {
+        setLoading(false);
+      }
+    }
+
     setStatus('AI is thinking...');
 
     setLoading(true);
@@ -53,6 +218,7 @@ export const AICompanionPage = () => {
       const data = (await response.json()) as {
         reply?: string;
         source: 'groq' | 'local-fallback' | 'groq-error';
+        actions?: CompanionAction[];
         message?: string;
         detail?: string;
       };
@@ -72,11 +238,65 @@ export const AICompanionPage = () => {
         await delay(1200 - elapsed);
       }
 
-      setConversation((prev) => [...prev, { role: 'assistant', text: reply }]);
+      const actionNotes: string[] = [];
+      const actions = Array.isArray(data.actions) ? data.actions : [];
+
+      for (const action of actions) {
+        if (action.type === 'add_workout_exercises' && Array.isArray(action.exercises)) {
+          const addedCount = await addWorkoutExercises(action.exercises);
+          let loggedCount = 0;
+
+          for (const exercise of action.exercises) {
+            const name = String(exercise?.name || '').trim();
+            const durationMinutes = Math.max(1, Math.round(Number(exercise?.durationMinutes) || 0));
+            const caloriesBurned = Math.max(1, Math.round(Number(exercise?.caloriesBurned) || 0));
+            if (!name) continue;
+            await addCustomWorkoutEntry(name, durationMinutes, caloriesBurned, 'companion');
+            loggedCount += 1;
+          }
+
+          if (addedCount > 0) {
+            actionNotes.push(
+              `${addedCount} exercise${addedCount > 1 ? 's were' : ' was'} added to today's workout plan.`,
+            );
+          }
+          if (loggedCount > 0) {
+            actionNotes.push(
+              `${loggedCount} exercise${loggedCount > 1 ? 's' : ''} logged in custom workout calories.`,
+            );
+          }
+          continue;
+        }
+
+        if (action.type === 'remove_workout_exercises' && Array.isArray(action.exercises)) {
+          const removed = await removeWorkoutExercises(action.exercises);
+          if (removed > 0) {
+            actionNotes.push(`Removed ${removed} companion-added workout task${removed > 1 ? 's' : ''}.`);
+          }
+          continue;
+        }
+
+        if (action.type === 'log_completed_workout' && action.exercise) {
+          const name = String(action.exercise.name || '').trim();
+          const durationMinutes = Math.max(1, Math.round(Number(action.exercise.durationMinutes) || 0));
+          const caloriesBurned = Math.max(1, Math.round(Number(action.exercise.caloriesBurned) || 0));
+          if (!name) continue;
+          await addCustomWorkoutEntry(name, durationMinutes, caloriesBurned, 'companion');
+          actionNotes.push(`Logged: ${name} (${durationMinutes} min, ${caloriesBurned} kcal).`);
+        }
+      }
+
+      const replyWithActions = actionNotes.length
+        ? `${reply}\n\n${actionNotes.map((note) => `• ${note}`).join('\n')}`
+        : reply;
+
+      setConversation((prev) => [...prev, { role: 'assistant', text: replyWithActions }]);
       setStatus(
-        data.source === 'groq'
-          ? 'Live Groq AI response generated.'
-          : 'Using local fallback because no Groq key is configured or the AI request failed.',
+        actionNotes.length
+          ? `Companion updated your workout: ${actionNotes[0]}`
+          : data.source === 'groq'
+            ? 'Live Groq AI response generated.'
+            : 'Using local fallback because no Groq key is configured or the AI request failed.',
       );
     } catch (error) {
       const errorMessage =
@@ -139,7 +359,7 @@ export const AICompanionPage = () => {
 
       <CardShell>
         <p className="text-sm uppercase tracking-[0.24em] text-black">Conversation</p>
-        <div className="mt-4 max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+        <div className="mt-4 max-h-[55dvh] space-y-3 overflow-y-auto pr-1 sm:max-h-[32rem]">
           {conversation.map((entry, index) => (
             <div
               key={`${entry.role}-${index}`}
@@ -169,6 +389,7 @@ export const AICompanionPage = () => {
               </p>
             </div>
           ))}
+          <div ref={endRef} />
         </div>
 
         <div className="mt-4 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900 dark:border-orange-400/35 dark:bg-[#18110a] dark:text-orange-100">
@@ -176,20 +397,28 @@ export const AICompanionPage = () => {
         </div>
 
         <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={handleSubmit}>
-          <input
+          <textarea
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             placeholder="Ask for advice..."
-            className="flex-1 rounded-2xl border border-blue-200 bg-white px-4 py-3 text-black outline-none"
+            rows={2}
+            className="flex-1 resize-none rounded-2xl border border-blue-200 bg-white px-4 py-3 text-black outline-none focus:border-clay dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50"
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              if (event.shiftKey) return;
+              event.preventDefault();
+              void sendMessage(message);
+            }}
           />
           <button
             type="submit"
             disabled={loading}
-            className="flex w-full items-center justify-center rounded-2xl bg-blue-100 px-4 py-3 text-black disabled:opacity-60 sm:w-auto"
+            className="flex w-full items-center justify-center rounded-2xl bg-blue-100 px-4 py-3 text-black disabled:opacity-60 dark:bg-orange-500/20 dark:text-orange-50 sm:w-auto sm:px-5"
           >
             <SendHorizonal size={18} />
           </button>
         </form>
+        <div style={{ height: 'env(safe-area-inset-bottom)' }} aria-hidden="true" />
       </CardShell>
     </div>
   );

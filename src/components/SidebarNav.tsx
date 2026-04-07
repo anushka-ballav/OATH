@@ -9,8 +9,6 @@ import {
   ScanSearch,
   Trophy,
   UserCircle2,
-  MoonStar,
-  SunMedium,
 } from 'lucide-react';
 import { AppTab } from '../types';
 import { classNames } from '../lib/utils';
@@ -29,8 +27,6 @@ const items: Array<{ id: AppTab; label: string; icon: typeof House }> = [
 export const SidebarNav = ({
   activeTab,
   onChange,
-  darkMode,
-  onToggleDarkMode,
   collapsed,
   onToggleCollapsed,
   userName,
@@ -39,8 +35,6 @@ export const SidebarNav = ({
 }: {
   activeTab: AppTab;
   onChange: (tab: AppTab) => void;
-  darkMode: boolean;
-  onToggleDarkMode: () => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   userName?: string;
@@ -118,23 +112,6 @@ export const SidebarNav = ({
     </nav>
 
     <div className="mt-6 border-t border-white/40 pt-5 dark:border-orange-400/10">
-      <button
-        type="button"
-        onClick={onToggleDarkMode}
-        title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-        aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-        className={classNames(
-          'btn-glow soft-surface panel-hover flex w-full rounded-[22px] text-sm font-semibold text-black active:scale-[0.99] dark:text-orange-100',
-          collapsed ? 'justify-center px-0 py-3' : 'items-center justify-between px-4 py-3',
-        )}
-      >
-        <span className="inline-flex items-center gap-2">
-          {darkMode ? <SunMedium size={18} /> : <MoonStar size={18} />}
-          {!collapsed ? (darkMode ? 'Light mode' : 'Dark mode') : null}
-        </span>
-        {!collapsed ? <span className="muted-text text-xs uppercase tracking-[0.24em]">Theme</span> : null}
-      </button>
-
       {onLogout ? (
         <button
           type="button"

@@ -1,25 +1,105 @@
-import { FormEvent, useState } from 'react';
-import { RotateCcw, UserRoundPen } from 'lucide-react';
+import { FormEvent, useRef, useState } from 'react';
+import { MoonStar, RotateCcw, SunMedium, UserRoundPen } from 'lucide-react';
 import { CardShell } from '../components/CardShell';
 import { useApp } from '../context/AppContext';
 import { genderOptions, savePreferredGender } from '../lib/gender';
+import { exportStateBundle, importStateBundle } from '../lib/storage';
 import { requestNotificationPermission } from '../services/notifications';
 
 export const ProfilePage = () => {
-  const { profile, session, updateProfile, resetAllData, notifications, toggleNotification, updateNotificationTime, logout } = useApp();
+  const {
+    profile,
+    session,
+    updateProfile,
+    resetAllData,
+    notifications,
+    toggleNotification,
+    updateNotificationTime,
+    logout,
+    darkMode,
+    toggleDarkMode,
+    easterEggsFound,
+    easterEggsTotal,
+    markEasterEggFound,
+    achievementsUnlocked,
+  } = useApp();
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
+  const [dataMessage, setDataMessage] = useState('');
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [themeTapState, setThemeTapState] = useState<{ count: number; lastAt: number }>({ count: 0, lastAt: 0 });
   const [form, setForm] = useState({
     gender: profile?.gender ?? 'Other',
     age: profile?.age ?? 0,
     height: profile?.height ?? 0,
     weight: profile?.weight ?? 0,
     goal: profile?.goal ?? 'Maintain',
-    dailyAvailableHours: profile?.dailyAvailableHours ?? 4,
+    dailyStudyHours: profile?.dailyStudyHours ?? profile?.dailyTargets?.studyHours ?? 3,
+    dailyWorkoutMinutes: profile?.dailyWorkoutMinutes ?? profile?.dailyTargets?.workoutMinutes ?? 45,
   });
 
   if (!profile || !session) return null;
+
+  const inviteUrl = `${window.location.origin}/?invite=1`;
+
+  const showDataMessage = (message: string) => {
+    setDataMessage(message);
+    window.setTimeout(() => setDataMessage(''), 2600);
+  };
+
+  const handleCopyInvite = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      showDataMessage('Invite link copied.');
+    } catch {
+      showDataMessage('Copy failed. Long-press to copy from the address bar.');
+    }
+  };
+
+  const handleExport = () => {
+    const bundle = exportStateBundle(profile.userId);
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `oath-export-${profile.userId}-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    showDataMessage('Export downloaded.');
+  };
+
+  const handleImportSelected = async (file: File) => {
+    const raw = await file.text();
+    const bundle = JSON.parse(raw);
+    importStateBundle(profile.userId, bundle);
+    showDataMessage('Import complete. Reloading…');
+    window.setTimeout(() => window.location.reload(), 500);
+  };
+
+  const handleSendFeedback = () => {
+    const subject = encodeURIComponent('OATH Feedback');
+    const body = encodeURIComponent(
+      `App version: ${__APP_VERSION__}\nUser: ${session.identifier}\n\nWhat happened?\n\nWhat did you expect?\n\n`,
+    );
+
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  };
+
+  const handleThemeToggleWithEgg = () => {
+    toggleDarkMode();
+    setThemeTapState((prev) => {
+      const now = Date.now();
+      const count = now - prev.lastAt > 3000 ? 1 : prev.count + 1;
+      if (count >= 10) {
+        markEasterEggFound('theme-spinner');
+        return { count: 0, lastAt: 0 };
+      }
+      return { count, lastAt: now };
+    });
+  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -27,7 +107,18 @@ export const ProfilePage = () => {
     setSavedMessage('');
 
     try {
-      await updateProfile(form);
+      const dailyStudyHours = Number.isFinite(form.dailyStudyHours)
+        ? Math.min(10, Math.max(1, form.dailyStudyHours))
+        : profile.dailyTargets.studyHours;
+      const dailyWorkoutMinutes = Number.isFinite(form.dailyWorkoutMinutes)
+        ? Math.min(180, Math.max(15, Math.round(form.dailyWorkoutMinutes)))
+        : profile.dailyTargets.workoutMinutes;
+      await updateProfile({
+        ...form,
+        dailyStudyHours,
+        dailyWorkoutMinutes,
+        dailyAvailableHours: Math.min(12, Math.max(1, dailyStudyHours + dailyWorkoutMinutes / 60)),
+      });
       savePreferredGender(form.gender);
       setSavedMessage('Saved successfully.');
       window.setTimeout(() => setSavedMessage(''), 2200);
@@ -64,6 +155,138 @@ export const ProfilePage = () => {
           </div>
         </div>
       </header>
+
+      <CardShell>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-black">Appearance</p>
+            <p className="muted-text mt-2 text-sm">Theme is controlled from your profile on mobile.</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleThemeToggleWithEgg}
+            className="soft-surface panel-hover inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-blue-100 px-4 py-3 text-sm font-semibold text-black dark:border-orange-400/30 dark:bg-orange-500/15 dark:text-orange-100 sm:w-auto"
+            aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {darkMode ? <SunMedium size={18} /> : <MoonStar size={18} />}
+            {darkMode ? 'Light mode' : 'Dark mode'}
+          </button>
+        </div>
+      </CardShell>
+
+      <CardShell>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-black">Easter Eggs</p>
+            <p className="muted-text mt-2 text-sm">Hidden surprises you can discover across the app.</p>
+          </div>
+          <div className="self-start rounded-full border border-blue-100 bg-blue-50 px-4 py-2 text-sm font-semibold text-black dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-50 sm:self-auto">
+            {easterEggsFound?.length || 0}/{easterEggsTotal} found
+          </div>
+        </div>
+      </CardShell>
+
+      <CardShell>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-black">Achievements</p>
+            <p className="muted-text mt-2 text-sm">Milestones unlocked automatically as you progress.</p>
+          </div>
+          <div className="self-start rounded-full border border-blue-100 bg-blue-50 px-4 py-2 text-sm font-semibold text-black dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-50 sm:self-auto">
+            {achievementsUnlocked?.length || 0} unlocked
+          </div>
+        </div>
+      </CardShell>
+
+      <CardShell>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-black">Share</p>
+            <p className="muted-text mt-2 text-sm">Invite friends to join your leaderboard.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleCopyInvite()}
+            className="w-full rounded-2xl bg-blue-50 px-4 py-3 text-sm font-semibold text-black transition hover:bg-blue-100 dark:bg-orange-500/10 dark:text-orange-50 dark:hover:bg-orange-500/15 sm:w-auto"
+          >
+            Copy invite link
+          </button>
+        </div>
+
+        <div className="mt-3 rounded-2xl border border-blue-100 bg-white/70 px-4 py-3 text-sm text-black dark:border-orange-400/20 dark:bg-white/5 dark:text-orange-50">
+          <p className="muted-text break-all">{inviteUrl}</p>
+        </div>
+
+        {dataMessage ? (
+          <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-medium text-black dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-100">
+            {dataMessage}
+          </div>
+        ) : null}
+      </CardShell>
+
+      <CardShell>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-black">Data</p>
+            <p className="muted-text mt-2 text-sm">Export or import your local app data.</p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={handleExport}
+              className="w-full rounded-2xl bg-blue-100 px-4 py-3 text-sm font-semibold text-black transition hover:bg-blue-200 dark:bg-orange-500/20 dark:text-orange-50 dark:hover:bg-orange-500/30 sm:w-auto"
+            >
+              Export
+            </button>
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              className="w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-blue-50 dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50 dark:hover:bg-orange-500/15 sm:w-auto"
+            >
+              Import
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                void handleImportSelected(file).catch(() => showDataMessage('Import failed.'));
+              }}
+            />
+          </div>
+        </div>
+      </CardShell>
+
+      <CardShell>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-black">Support</p>
+            <p className="muted-text mt-2 text-sm">Send feedback or report a bug from your email app.</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSendFeedback}
+            className="w-full rounded-2xl bg-blue-50 px-4 py-3 text-sm font-semibold text-black transition hover:bg-blue-100 dark:bg-orange-500/10 dark:text-orange-50 dark:hover:bg-orange-500/15 sm:w-auto"
+          >
+            Send feedback
+          </button>
+        </div>
+
+        <div className="mt-3 rounded-2xl border border-blue-100 bg-white/70 px-4 py-3 text-sm text-black dark:border-orange-400/20 dark:bg-white/5 dark:text-orange-50">
+          <button
+            type="button"
+            className="muted-text w-full text-left"
+            onClick={() => markEasterEggFound('version-tap')}
+            title="Version"
+          >
+            Version {__APP_VERSION__}
+          </button>
+        </div>
+      </CardShell>
 
       <CardShell>
         <p className="text-sm uppercase tracking-[0.24em] text-black">Edit Goals</p>
@@ -110,11 +333,26 @@ export const ProfilePage = () => {
             />
           </label>
           <label>
-            <span className="mb-2 block text-sm font-medium">Daily available hours</span>
+            <span className="mb-2 block text-sm font-medium">Daily study hours</span>
             <input
               type="number"
-              value={form.dailyAvailableHours}
-              onChange={(event) => setForm((prev) => ({ ...prev, dailyAvailableHours: Number(event.target.value) }))}
+              min={1}
+              max={10}
+              step={0.5}
+              value={form.dailyStudyHours}
+              onChange={(event) => setForm((prev) => ({ ...prev, dailyStudyHours: Number(event.target.value) }))}
+              className="w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-black outline-none focus:border-clay"
+            />
+          </label>
+          <label>
+            <span className="mb-2 block text-sm font-medium">Daily workout minutes</span>
+            <input
+              type="number"
+              min={15}
+              max={180}
+              step={5}
+              value={form.dailyWorkoutMinutes}
+              onChange={(event) => setForm((prev) => ({ ...prev, dailyWorkoutMinutes: Number(event.target.value) }))}
               className="w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-black outline-none focus:border-clay"
             />
           </label>
@@ -131,7 +369,7 @@ export const ProfilePage = () => {
             </select>
           </label>
           <div className="sm:col-span-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-black dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-100">
-            Daily calories, hydration, and macro targets are recalculated using your selected gender, body metrics, goal, and available hours.
+            Daily calories, hydration, and macros are recalculated from your selected study hours, workout minutes, and body metrics.
           </div>
           <button
             type="submit"
