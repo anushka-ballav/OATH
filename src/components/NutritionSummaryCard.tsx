@@ -38,7 +38,7 @@ const RadialRing = ({
   const [start, mid, end] = gradientStops;
 
   return (
-    <div className="page-enter flex flex-col items-center gap-2" style={ringDelay(delayIndex)}>
+    <div className="nutrition-ring page-enter flex flex-col items-center gap-2 rounded-2xl px-2 py-1.5" style={ringDelay(delayIndex)}>
       <div className="relative grid place-items-center">
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
           <defs>
@@ -120,7 +120,7 @@ export const NutritionSummaryCard = ({
   const safeGoalPercent = clamp01(goalCompletionPercent / 100) * 100;
 
   return (
-    <CardShell className="hero-glow relative overflow-hidden rounded-[32px] border border-orange-400/20 bg-transparent">
+    <CardShell className="nutrition-shell hero-glow relative overflow-hidden rounded-[32px] border border-orange-400/20 bg-transparent">
       <div className="absolute inset-0 bg-gradient-to-br from-orange-500/8 via-fuchsia-500/6 to-sky-500/8" />
 
       <div className="relative flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">

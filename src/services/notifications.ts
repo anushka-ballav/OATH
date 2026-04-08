@@ -18,7 +18,7 @@ export const defaultNotifications: NotificationItem[] = [
   { id: 'study', label: 'Study reminder', time: '18:00', enabled: true },
   { id: 'workout', label: 'Workout reminder', time: '19:00', enabled: true },
   { id: 'water', label: 'Drink water reminder', time: '10:00', enabled: true },
-  { id: 'tasks', label: '8 PM unfinished tasks reminder', time: '20:00', enabled: true },
+  { id: 'tasks', label: 'Unfinished task reminder', time: '20:00', enabled: true },
 ];
 
 const REMINDER_STORAGE_PREFIX = 'oath-reminder-sent-v1';
@@ -51,6 +51,35 @@ const markReminderSent = (userId: string, dateKey: string, reminderId: string) =
   } catch {
     // Ignore storage failures for notifications.
   }
+};
+
+const getReminderWindowKey = (item: NotificationItem, now: Date) => {
+  const dateKey = toDateKey(now);
+  const reminderId = String(item.id || '').trim();
+  const reminderMinutes = toMinutes(item.time);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  if (reminderId !== 'water') {
+    return {
+      dateKey,
+      reminderKey: reminderId,
+    };
+  }
+
+  if (nowMinutes < reminderMinutes) {
+    return {
+      dateKey,
+      reminderKey: reminderId,
+    };
+  }
+
+  const WATER_REPEAT_WINDOW_MINUTES = 120;
+  const slot = Math.floor((nowMinutes - reminderMinutes) / WATER_REPEAT_WINDOW_MINUTES);
+
+  return {
+    dateKey,
+    reminderKey: `${reminderId}-${item.time}-${slot}`,
+  };
 };
 
 const themedNotificationConfig = (kind: NotificationKind) => {
@@ -327,14 +356,14 @@ export const processScheduledNotifications = async ({
   }
 
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const dateKey = toDateKey(now);
 
   for (const defaultItem of defaultNotifications) {
     const currentItem = notifications.find((item) => item.id === defaultItem.id) ?? defaultItem;
+    const { dateKey, reminderKey } = getReminderWindowKey(currentItem, now);
 
     if (!currentItem.enabled) continue;
     if (nowMinutes < toMinutes(normalizeTime(currentItem.time, defaultItem.time))) continue;
-    if (readSentReminder(userId, dateKey, currentItem.id)) continue;
+    if (readSentReminder(userId, dateKey, reminderKey)) continue;
 
     const payload = buildScheduledReminder({
       item: currentItem,
@@ -347,6 +376,6 @@ export const processScheduledNotifications = async ({
     if (!payload) continue;
 
     await showBrowserNotification(payload.title, payload.body, payload.kind);
-    markReminderSent(userId, dateKey, currentItem.id);
+    markReminderSent(userId, dateKey, reminderKey);
   }
 };

@@ -89,6 +89,17 @@ const App = () => {
     }
   });
 
+  useEffect(() => {
+    if (!('scrollRestoration' in window.history)) return;
+
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+
+    return () => {
+      window.history.scrollRestoration = previous;
+    };
+  }, []);
+
   const toggleSidebarCollapsed = () => {
     setIsSidebarCollapsed((prev) => {
       const next = !prev;
@@ -166,6 +177,19 @@ const App = () => {
       window.clearTimeout(timeout);
     };
   }, [profileSwipeTopResetKey, tab]);
+
+  useEffect(() => {
+    if (!isReady || !session || !profile) return;
+
+    scrollPageToTop();
+    const animationFrame = window.requestAnimationFrame(scrollPageToTop);
+    const timeout = window.setTimeout(scrollPageToTop, 200);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.clearTimeout(timeout);
+    };
+  }, [isReady, profile ? 'ready' : 'empty', session?.userId, tab]);
 
   useEffect(() => {
     if (!session || !profile) return;

@@ -5,6 +5,7 @@ const safePost = async (path: string, body: unknown) => {
     await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      keepalive: true,
       body: JSON.stringify(body),
     });
   } catch {

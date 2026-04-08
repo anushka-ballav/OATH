@@ -232,7 +232,7 @@ const DEFAULT_NOTIFICATION_SETTINGS = [
   { id: 'study', label: 'Study reminder', time: '18:00', enabled: true },
   { id: 'workout', label: 'Workout reminder', time: '19:00', enabled: true },
   { id: 'water', label: 'Drink water reminder', time: '10:00', enabled: true },
-  { id: 'tasks', label: '8 PM unfinished tasks reminder', time: '20:00', enabled: true },
+  { id: 'tasks', label: 'Unfinished task reminder', time: '20:00', enabled: true },
 ];
 const normalizeReminderTime = (value, fallback = '20:00') =>
   /^\d{2}:\d{2}$/.test(String(value || '').trim()) ? String(value).trim() : fallback;

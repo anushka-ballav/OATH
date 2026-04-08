@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, KeyRound, Mail } from 'lucide-react';
-import { genderOptions, readPreferredGender, savePreferredGender } from '../lib/gender';
 import { sendOtp, verifyOtp } from '../services/auth';
 import { UserSession } from '../types';
 import { BrandLogo } from './BrandLogo';
@@ -14,7 +13,6 @@ interface OTPLoginFormProps {
 
 export const OTPLoginForm = ({ onLogin }: OTPLoginFormProps) => {
   const [identifier, setIdentifier] = useState('');
-  const [gender, setGender] = useState(readPreferredGender());
   const [otp, setOtp] = useState('');
   const [status, setStatus] = useState('Enter your email address to receive an OTP.');
   const [statusTone, setStatusTone] = useState<'info' | 'success' | 'error'>('info');
@@ -103,28 +101,6 @@ export const OTPLoginForm = ({ onLogin }: OTPLoginFormProps) => {
 
       <form className="space-y-4" onSubmit={otpSent ? handleVerifyOtp : handleSendOtp}>
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Gender for your plan setup</span>
-          <select
-            value={gender}
-            onChange={(event) => {
-              const nextGender = event.target.value as typeof gender;
-              setGender(nextGender);
-              savePreferredGender(nextGender);
-            }}
-            className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-black outline-none transition focus:border-clay focus:ring-2 focus:ring-blue-100 dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50 dark:focus:ring-orange-500/20"
-          >
-            {genderOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-          <span className="muted-text mt-2 block text-xs">
-            This is saved and used to prefill your daily-goal setup after login.
-          </span>
-        </label>
-
-        <label className="block">
           <span className="mb-2 block text-sm font-medium">Email address</span>
           <input
             required
@@ -142,6 +118,9 @@ export const OTPLoginForm = ({ onLogin }: OTPLoginFormProps) => {
             className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-black outline-none transition focus:border-clay focus:ring-2 focus:ring-blue-100 dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50 dark:focus:ring-orange-500/20"
             placeholder="you@example.com"
           />
+          <span className="muted-text mt-2 block text-xs">
+            We&apos;ll ask for profile details like gender after you log in.
+          </span>
         </label>
 
         {otpSent && (

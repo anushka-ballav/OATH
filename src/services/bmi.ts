@@ -38,6 +38,7 @@ export const recordBmi = async ({
   const response = await fetch('/api/bmi', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    keepalive: true,
     body: JSON.stringify({
       userId,
       identifier,

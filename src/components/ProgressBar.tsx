@@ -21,7 +21,7 @@ export const ProgressBar = ({ value, colorClass = 'bg-moss' }: ProgressBarProps)
     <div className="progress-glow h-3 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
       <div
         className={classNames(
-          'relative h-full rounded-full shadow-[0_0_22px_rgba(249,115,22,0.22)] transition-[width,transform] duration-700 ease-out',
+          'progress-fill-3d relative h-full rounded-full shadow-[0_0_22px_rgba(249,115,22,0.22)] transition-[width,transform] duration-700 ease-out',
           colorClass,
         )}
         style={{ width: `${width}%` }}

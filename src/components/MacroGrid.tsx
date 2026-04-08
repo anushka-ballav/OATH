@@ -125,7 +125,7 @@ export const MacroGrid = ({
         <div
           key={card.key}
           className={classNames(
-            'panel-hover page-enter relative overflow-hidden rounded-[26px] border border-white/10 bg-white/5 p-4 text-black backdrop-blur-xl dark:text-orange-50',
+            'nutrition-macro-card panel-hover page-enter relative overflow-hidden rounded-[26px] border border-white/10 bg-white/5 p-4 text-black backdrop-blur-xl dark:text-orange-50',
             'shadow-[0_18px_60px_rgba(0,0,0,0.35)]',
           )}
           style={cardDelay(index)}

@@ -21,7 +21,7 @@ import { EASTER_EGGS_TOTAL, normalizeEasterEggIds, type EasterEggId } from '../l
 import { achievementMeta, normalizeAchievementIds, type AchievementId } from '../lib/achievements';
 import { computeUserScore } from '../lib/score';
 import { randomId } from '../lib/utils';
-import { defaultNotifications, processScheduledNotifications } from '../services/notifications';
+import { defaultNotifications, processScheduledNotifications, sendLocalNotification } from '../services/notifications';
 import { fetchBmiHistory as apiFetchBmiHistory, recordBmi as apiRecordBmi } from '../services/bmi';
 import {
   createTask as apiCreateTask,
@@ -139,6 +139,7 @@ const initialState: AppState = {
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 const FIRST_LAUNCH_KEY_PREFIX = 'oath-first-launch-done-';
 const LEGACY_FIRST_LAUNCH_KEY = 'oath-first-launch-done';
+const DAILY_COMPLETION_NOTIFICATION_KEY = 'oath-daily-complete-toast';
 
 const lastItem = <T,>(items: T[]) => items[items.length - 1];
 const isFriendLeaderboardEntry = (entry: LeaderboardEntry) => entry.id.startsWith('friend-') && !entry.userId;
@@ -403,6 +404,41 @@ const isGoalMet = (profile: UserProfile | null, log: DailyLog) => {
     log.caloriesConsumed <= profile.dailyTargets.calories
   );
 };
+
+const areWorkoutTasksComplete = (profile: UserProfile | null, log: DailyLog) => {
+  if (!profile) return false;
+  const checklist = profile.dailyTargets?.workoutPlan?.dailyChecklist ?? [];
+  if (!checklist.length) return false;
+  const completedSet = new Set(log.completedWorkoutTasks ?? []);
+  return checklist.every((task) => completedSet.has(task.id));
+};
+
+const hasCompletedAllTrackedTasks = ({
+  profile,
+  log,
+  tasks,
+  dateKey,
+}: {
+  profile: UserProfile | null;
+  log: DailyLog;
+  tasks: TaskItem[];
+  dateKey: string;
+}) => {
+  if (!profile) return false;
+
+  const pendingTasks = tasks.some((task) => !task.completed && task.dueDate && task.dueDate <= dateKey);
+
+  return (
+    Boolean(log.wakeUpTime) &&
+    log.studyMinutes >= profile.dailyTargets.studyHours * 60 &&
+    log.waterIntakeMl >= profile.dailyTargets.waterLiters * 1000 &&
+    areWorkoutTasksComplete(profile, log) &&
+    !pendingTasks
+  );
+};
+
+const dailyCompletionStorageKey = (userId: string, dateKey: string) =>
+  `${DAILY_COMPLETION_NOTIFICATION_KEY}-${userId}-${dateKey}`;
 
 const hasMeaningfulLogData = (log: DailyLog) =>
   Boolean(
@@ -669,7 +705,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       try {
         const tasks = await apiFetchTasks(userId, state.session?.identifier);
         if (!cancelled) {
-          setState((prev) => ({ ...prev, tasks }));
+          setState((prev) => ({
+            ...prev,
+            tasks: tasks.length || !prev.tasks.length ? tasks : prev.tasks,
+          }));
         }
       } catch {
         // Server data is optional; fall back to local cache.
@@ -678,7 +717,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       try {
         const bmiHistory = await apiFetchBmiHistory(userId, state.session?.identifier);
         if (!cancelled) {
-          setState((prev) => ({ ...prev, bmiHistory }));
+          setState((prev) => ({
+            ...prev,
+            bmiHistory: bmiHistory.length || !prev.bmiHistory.length ? bmiHistory : prev.bmiHistory,
+          }));
         }
       } catch {
         // Server data is optional; fall back to local cache.
@@ -741,6 +783,44 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     };
   }, [currentLog, isReady, state.notifications, state.profile, state.session, state.tasks]);
 
+  useEffect(() => {
+    if (!isReady || !state.session || !state.profile) return;
+
+    const completed = hasCompletedAllTrackedTasks({
+      profile: state.profile,
+      log: currentLog,
+      tasks: state.tasks,
+      dateKey: currentDayKey,
+    });
+
+    const storageKey = dailyCompletionStorageKey(state.session.userId, currentDayKey);
+
+    if (!completed) {
+      try {
+        window.localStorage.removeItem(storageKey);
+      } catch {
+        // Ignore storage failures and keep the celebration usable.
+      }
+      return;
+    }
+
+    try {
+      if (window.localStorage.getItem(storageKey)) {
+        return;
+      }
+
+      window.localStorage.setItem(storageKey, new Date().toISOString());
+    } catch {
+      // If storage fails, still try to celebrate once during this session.
+    }
+
+    sendLocalNotification(
+      '🎉 All tasks complete',
+      'Amazing work — you finished today’s wake-up, study, workout, water, and pending checklist goals.',
+      'success',
+    );
+  }, [currentDayKey, currentLog, isReady, state.profile, state.session, state.tasks]);
+
   const upsertLog = async (updater: (log: DailyLog) => DailyLog) => {
     let nextLog: DailyLog | null = null;
     let sessionUserId: string | null = state.session?.userId ?? null;
@@ -776,15 +856,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     });
 
     if (sessionUserId && nextLog) {
-      try {
-        await syncDailyLog(sessionUserId, nextLog);
-      } catch {
-        // Local state is already updated; background persistence can fail silently.
-      }
-    }
-
-    if (state.session && nextLog) {
-      void syncDailyLogToServer(state.session, state.profile, nextLog);
+      await Promise.allSettled([
+        syncDailyLog(sessionUserId, nextLog),
+        state.session ? syncDailyLogToServer(state.session, state.profile, nextLog) : Promise.resolve(),
+      ]);
     }
   };
 
@@ -877,8 +952,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
             : log,
         ),
       }));
-      await syncProfile(profile);
-      void syncProfileToServer(state.session, profile);
+      await Promise.allSettled([
+        syncProfile(profile),
+        syncProfileToServer(state.session, profile, state.notifications),
+      ]);
     },
     async updateProfile(profileUpdate) {
       const profile = state.profile ? { ...state.profile, ...profileUpdate } : null;
@@ -925,10 +1002,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
             : log,
         ),
       }));
-      await syncProfile(nextProfile);
-      if (state.session) {
-        void syncProfileToServer(state.session, nextProfile);
-      }
+      await Promise.allSettled([
+        syncProfile(nextProfile),
+        state.session ? syncProfileToServer(state.session, nextProfile, state.notifications) : Promise.resolve(),
+      ]);
     },
     async markWakeUp(timeValue) {
       const wakeUpTimestamp = (() => {
@@ -1101,10 +1178,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       });
 
       if (nextProfile) {
-        await syncProfile(nextProfile);
-        if (state.session) {
-          void syncProfileToServer(state.session, nextProfile);
-        }
+        await Promise.allSettled([
+          syncProfile(nextProfile),
+          state.session ? syncProfileToServer(state.session, nextProfile, state.notifications) : Promise.resolve(),
+        ]);
       }
 
       return addedCount;
@@ -1231,10 +1308,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       });
 
       if (nextProfile) {
-        await syncProfile(nextProfile);
-        if (state.session) {
-          void syncProfileToServer(state.session, nextProfile);
-        }
+        await Promise.allSettled([
+          syncProfile(nextProfile),
+          state.session ? syncProfileToServer(state.session, nextProfile, state.notifications) : Promise.resolve(),
+        ]);
       }
 
       if (sessionUserId && nextLog) {
@@ -1363,6 +1440,16 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         ...prev,
         bmiHistory: [entry, ...prev.bmiHistory.filter((item) => item.id !== entry.id)],
       }));
+
+      try {
+        const bmiHistory = await apiFetchBmiHistory(state.session.userId, state.session.identifier);
+        setState((prev) => ({
+          ...prev,
+          bmiHistory: bmiHistory.length ? bmiHistory : prev.bmiHistory,
+        }));
+      } catch {
+        // Keep the saved local BMI entry visible if the server refresh fails.
+      }
     },
     async resetAllData() {
       const currentSession = state.session;
