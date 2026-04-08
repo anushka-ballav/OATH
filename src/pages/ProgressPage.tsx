@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { CardShell } from '../components/CardShell';
 import { WeeklyChart } from '../components/WeeklyChart';
-import { getLastNDays, getLastSevenDays } from '../lib/date';
+import { getLastNDays, todayKey } from '../lib/date';
 import {
   Bar,
   BarChart,
@@ -17,27 +17,26 @@ import {
 } from 'recharts';
 
 export const ProgressPage = () => {
-  const { logs, streakHistory, profile, currentLog, tasks, refreshTasks, session } = useApp();
+  const { logs, streakHistory, profile, currentLog } = useApp();
   const [range, setRange] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
   const rangeDays = range === 'daily' ? 1 : range === 'monthly' ? 30 : 7;
   const dateKeys = useMemo(() => getLastNDays(rangeDays), [rangeDays]);
+  const trackingToday = todayKey();
 
-  useEffect(() => {
-    if (!session) return;
-    void refreshTasks();
-  }, [session?.identifier, session?.userId]);
-
-  const today = dateKeys[dateKeys.length - 1];
-  const completedDateKey = (isoString: string | null) => {
-    if (!isoString) return '';
-    const date = new Date(isoString);
-    if (Number.isNaN(date.getTime())) return '';
-    return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
-  };
+  const logsByDate = useMemo(() => {
+    const map = new Map(logs.map((entry) => [entry.date, entry]));
+    if (!map.has(currentLog.date)) {
+      map.set(currentLog.date, currentLog);
+    }
+    if (!map.has(trackingToday)) {
+      map.set(trackingToday, currentLog);
+    }
+    return map;
+  }, [currentLog, logs, trackingToday]);
 
   const buildSeries = (field: 'studyMinutes' | 'waterIntakeMl' | 'caloriesConsumed') =>
     dateKeys.map((date) => {
-      const log = logs.find((entry) => entry.date === date);
+      const log = logsByDate.get(date);
       const value =
         field === 'studyMinutes'
           ? Math.round((log?.studyMinutes ?? 0) / 60)
@@ -57,20 +56,22 @@ export const ProgressPage = () => {
   );
 
   const taskSeries = useMemo(() => {
-    return dateKeys.map((date) => {
-      const completed = (tasks || []).filter((task) => {
-        if (!task.completed) return false;
-        const completedOn = completedDateKey(task.completedAt);
-        return completedOn ? completedOn === date : task.dueDate === date;
-      }).length;
+    const studyTargetMinutes = Math.max(0, Math.round((profile?.dailyTargets.studyHours ?? 0) * 60));
+    const waterTargetMl = Math.max(0, Math.round((profile?.dailyTargets.waterLiters ?? 0) * 1000));
+    const workoutChecklist = Array.isArray(profile?.dailyTargets.workoutPlan.dailyChecklist)
+      ? profile!.dailyTargets.workoutPlan.dailyChecklist
+      : [];
 
-      const pending = (tasks || []).filter((task) => {
-        if (task.completed) return false;
-        if (date === today) {
-          return task.dueDate <= date;
-        }
-        return task.dueDate === date;
-      }).length;
+    return dateKeys.map((date) => {
+      const log = logsByDate.get(date);
+      const completedWorkoutTasks = new Set(log?.completedWorkoutTasks || []);
+      const studyDone = studyTargetMinutes > 0 && (log?.studyMinutes ?? 0) >= studyTargetMinutes;
+      const waterDone = waterTargetMl > 0 && (log?.waterIntakeMl ?? 0) >= waterTargetMl;
+      const workoutDone =
+        workoutChecklist.length > 0 &&
+        workoutChecklist.every((task) => task.id && completedWorkoutTasks.has(task.id));
+      const completed = [studyDone, waterDone, workoutDone].filter(Boolean).length;
+      const pending = 3 - completed;
 
       return {
         day: date.slice(5),
@@ -78,18 +79,18 @@ export const ProgressPage = () => {
         pending,
       };
     });
-  }, [dateKeys, tasks, today]);
+  }, [dateKeys, logsByDate, profile]);
 
   const caloriesSeries = useMemo(() => {
     return dateKeys.map((date) => {
-      const log = logs.find((entry) => entry.date === date);
+      const log = logsByDate.get(date);
       return {
         day: date.slice(5),
         consumed: log?.caloriesConsumed ?? 0,
         burned: log?.caloriesBurned ?? 0,
       };
     });
-  }, [dateKeys, logs]);
+  }, [dateKeys, logsByDate]);
 
   const guideItems = useMemo(() => {
     if (!profile) return [];
@@ -153,7 +154,7 @@ export const ProgressPage = () => {
         <CardShell>
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-black">Tasks Completed vs Pending</p>
+              <p className="text-sm uppercase tracking-[0.24em] text-black">Daily Goals Completed vs Pending</p>
               <h3 className="font-display text-xl">{range === 'daily' ? 'Today' : 'Trend'} overview</h3>
             </div>
           </div>

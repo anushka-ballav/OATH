@@ -97,6 +97,7 @@ export const HomePage = () => {
     markWakeUp,
     addStudyMinutes,
     addWater,
+    removeWater,
     addCaloriesBurned,
     toggleWorkoutTask,
     addCustomWorkoutEntry,
@@ -283,6 +284,10 @@ export const HomePage = () => {
             onAdd={async (amount) => {
               await addWater(amount);
               sendLocalNotification('Hydration update', `Added ${amount}ml water.`);
+            }}
+            onRemove={async (amount) => {
+              await removeWater(amount);
+              sendLocalNotification('Hydration update', `Removed ${amount}ml water.`);
             }}
           />
         </div>

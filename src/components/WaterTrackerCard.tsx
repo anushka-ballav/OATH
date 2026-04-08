@@ -8,9 +8,10 @@ interface WaterTrackerCardProps {
   currentMl: number;
   profile: UserProfile;
   onAdd: (amount: number) => Promise<void>;
+  onRemove: (amount: number) => Promise<void>;
 }
 
-export const WaterTrackerCard = ({ currentMl, profile, onAdd }: WaterTrackerCardProps) => (
+export const WaterTrackerCard = ({ currentMl, profile, onAdd, onRemove }: WaterTrackerCardProps) => (
   <CardShell className="relative overflow-hidden rounded-[28px] border border-orange-400/20 bg-transparent">
     <div className="flex items-start justify-between">
       <div>
@@ -43,7 +44,7 @@ export const WaterTrackerCard = ({ currentMl, profile, onAdd }: WaterTrackerCard
       })}
     </div>
 
-    <div className="mt-4 flex gap-3">
+    <div className="mt-4 grid gap-3 sm:grid-cols-3">
       <button
         type="button"
         onClick={() => void onAdd(250)}
@@ -57,6 +58,14 @@ export const WaterTrackerCard = ({ currentMl, profile, onAdd }: WaterTrackerCard
         className="btn-glow flex-1 rounded-2xl bg-sky-500 px-4 py-3 font-semibold text-black transition hover:bg-sky-400 active:scale-[0.99]"
       >
         +500ml
+      </button>
+      <button
+        type="button"
+        onClick={() => void onRemove(250)}
+        disabled={currentMl <= 0}
+        className="btn-glow flex-1 rounded-2xl border border-orange-400/25 bg-white/50 px-4 py-3 font-semibold text-black transition hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.99] dark:bg-white/5 dark:text-orange-100 dark:hover:bg-white/10"
+      >
+        -250ml
       </button>
     </div>
   </CardShell>

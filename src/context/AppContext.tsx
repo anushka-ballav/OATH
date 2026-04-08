@@ -82,6 +82,7 @@ interface AppContextValue extends AppState {
   markWakeUp(timeValue?: string): Promise<void>;
   addStudyMinutes(minutes: number): Promise<void>;
   addWater(amount: number): Promise<void>;
+  removeWater(amount: number): Promise<void>;
   addCaloriesBurned(value: number): Promise<void>;
   addFoodEntry(entry: FoodEntry): Promise<void>;
   removeFoodEntry(entryId: string): Promise<void>;
@@ -947,7 +948,13 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       await upsertLog((log) => ({ ...log, studyMinutes: Math.max(0, log.studyMinutes + minutes) }));
     },
     async addWater(amount) {
-      await upsertLog((log) => ({ ...log, waterIntakeMl: log.waterIntakeMl + amount }));
+      await upsertLog((log) => ({ ...log, waterIntakeMl: Math.max(0, log.waterIntakeMl + Math.max(0, amount)) }));
+    },
+    async removeWater(amount) {
+      await upsertLog((log) => ({
+        ...log,
+        waterIntakeMl: Math.max(0, log.waterIntakeMl - Math.max(0, amount)),
+      }));
     },
     async addCaloriesBurned(value) {
       await upsertLog((log) =>
