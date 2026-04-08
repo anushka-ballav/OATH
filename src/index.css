@@ -773,6 +773,54 @@ html.dark.intro-minimal body {
   }
 }
 
+@keyframes mobile-page-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes mobile-card-rise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(0.986);
+  }
+  70% {
+    opacity: 1;
+    transform: translate3d(0, -1px, 0) scale(1.004);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes mobile-profile-drop {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -16px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes mobile-profile-fade {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0.66;
+    transform: translate3d(-10px, 0, 0);
+  }
+}
+
 @media (hover: hover) {
   .panel-hover:hover {
     transform: translate3d(0, -3px, 8px) scale(1.008);
@@ -952,11 +1000,23 @@ html.dark.intro-minimal body {
     transform: none !important;
   }
 
-  .page-enter,
-  .fly-enter,
-  .swipe-profile-enter,
+  .page-enter {
+    animation: mobile-page-rise 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both !important;
+    animation-delay: var(--enter-delay, var(--enter-base, 0ms)) !important;
+  }
+
+  .fly-enter {
+    animation: mobile-card-rise 420ms cubic-bezier(0.2, 0.82, 0.2, 1) both !important;
+    animation-delay: var(--enter-delay, var(--enter-base, 0ms)) !important;
+    will-change: transform, opacity;
+  }
+
+  .swipe-profile-enter {
+    animation: mobile-profile-drop 240ms cubic-bezier(0.2, 0.82, 0.2, 1) both !important;
+  }
+
   .swipe-profile-exit {
-    animation: none !important;
+    animation: mobile-profile-fade 120ms ease-out both !important;
   }
 
   .panel-hover,
@@ -965,6 +1025,13 @@ html.dark.intro-minimal body {
     transition-duration: 120ms !important;
     transform: none !important;
     filter: none !important;
+  }
+
+  .panel-hover:active,
+  .soft-surface:active,
+  .btn-glow:active {
+    transform: translate3d(0, -1px, 0) scale(0.996) !important;
+    filter: brightness(1.03) !important;
   }
 
   .progress-fill-3d::after {

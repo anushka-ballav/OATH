@@ -32,8 +32,8 @@ const LEGACY_FIRST_LAUNCH_KEY = 'oath-first-launch-done';
 const getFirstLaunchKey = (userId: string) => `${FIRST_LAUNCH_KEY_PREFIX}${userId}`;
 
 const readViewport = () => ({
-  width: window.innerWidth,
-  height: window.innerHeight,
+  width: Math.round(window.visualViewport?.width ?? window.innerWidth ?? document.documentElement.clientWidth ?? 0),
+  height: Math.round(window.visualViewport?.height ?? window.innerHeight ?? document.documentElement.clientHeight ?? 0),
 });
 
 const scrollPageToTop = () => {
@@ -43,8 +43,8 @@ const scrollPageToTop = () => {
 };
 
 const getViewportShellMetrics = (viewportWidth: number, viewportHeight: number, collapsed: boolean) => {
-  const safeWidth = Math.max(360, viewportWidth);
-  const safeHeight = Math.max(640, viewportHeight);
+  const safeWidth = Math.max(0, viewportWidth);
+  const safeHeight = Math.max(0, viewportHeight);
   const horizontalGutter = safeWidth >= 1800 ? 40 : safeWidth >= 1536 ? 32 : safeWidth >= 1280 ? 24 : 0;
   const maxWidth = Math.min(2200, Math.max(0, safeWidth - horizontalGutter * 2));
   const sidebarWidth = collapsed ? 108 : Math.min(360, Math.max(280, Math.round(maxWidth * 0.18)));
@@ -120,7 +120,15 @@ const App = () => {
     };
 
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    const visualViewport = window.visualViewport;
+    visualViewport?.addEventListener('resize', handleResize);
+    visualViewport?.addEventListener('scroll', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      visualViewport?.removeEventListener('resize', handleResize);
+      visualViewport?.removeEventListener('scroll', handleResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -282,9 +290,9 @@ const App = () => {
   );
   const mainStyle = useMemo<CSSProperties>(
     () => ({
-      maxWidth: `${shellMetrics.maxWidth}px`,
+      maxWidth: viewport.width < 1280 ? '100%' : `${shellMetrics.maxWidth}px`,
     }),
-    [shellMetrics.maxWidth],
+    [shellMetrics.maxWidth, viewport.width],
   );
   const desktopGridStyle = useMemo<CSSProperties | undefined>(() => {
     if (viewport.width < 1280) return undefined;
@@ -309,7 +317,7 @@ const App = () => {
   if (!session) {
     return (
       <main
-        className="mx-auto flex min-h-dvh w-full items-center justify-center px-4 py-6 sm:px-6 lg:px-8 2xl:px-10"
+        className="mx-auto flex min-h-dvh w-full items-center justify-center overflow-x-clip px-4 py-6 sm:px-6 lg:px-8 2xl:px-10"
         style={mainStyle}
       >
         <OTPLoginForm onLogin={login} />
@@ -320,7 +328,7 @@ const App = () => {
   if (!profile) {
     return (
       <main
-        className="mx-auto flex min-h-dvh w-full items-center justify-center px-4 py-6 sm:px-6 lg:px-8 2xl:px-10"
+        className="mx-auto flex min-h-dvh w-full items-center justify-center overflow-x-clip px-4 py-6 sm:px-6 lg:px-8 2xl:px-10"
         style={mainStyle}
       >
         <OnboardingForm onSubmit={completeOnboarding} />
@@ -330,7 +338,7 @@ const App = () => {
 
   return (
     <main
-      className="mx-auto min-h-dvh w-full px-3 py-4 sm:px-5 sm:py-5 lg:px-6 xl:px-8 2xl:px-10"
+      className="mx-auto min-h-dvh w-full overflow-x-clip px-3 py-4 sm:px-5 sm:py-5 lg:px-6 xl:px-8 2xl:px-10"
       style={mainStyle}
     >
       {session && profile ? (
@@ -389,7 +397,7 @@ const App = () => {
 
         <section
           className={classNames(
-            'min-w-0 pb-[calc(1.25rem+env(safe-area-inset-bottom))] xl:pb-10',
+            'min-w-0 w-full pb-[calc(1.25rem+env(safe-area-inset-bottom))] xl:pb-10',
             swipeProfilePhase === 'exit' ? 'swipe-profile-exit' : '',
             swipeProfilePhase === 'enter' ? 'swipe-profile-enter' : '',
           )}
