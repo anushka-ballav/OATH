@@ -149,6 +149,11 @@ export interface LeaderboardEntry {
   friendsSince?: string;
   activityDate?: string;
   weeklyWins?: number;
+  weeklyXp?: number;
+  dailyMissionPoints?: number;
+  consistencyPercent?: number;
+  perfectDays7d?: number;
+  challengeScore?: number;
 }
 
 export interface LeaderboardInvite {

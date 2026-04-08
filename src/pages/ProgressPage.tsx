@@ -1,8 +1,33 @@
 import { useMemo, useState } from 'react';
+import {
+  AlarmClock,
+  ArrowDownRight,
+  ArrowUpRight,
+  BookOpenText,
+  Brain,
+  CalendarClock,
+  Droplets,
+  Flame,
+  ListChecks,
+  Sparkles,
+  TrendingUp,
+} from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { CardShell } from '../components/CardShell';
+import { ProgressBar } from '../components/ProgressBar';
 import { WeeklyChart } from '../components/WeeklyChart';
 import { getLastNDays, todayKey } from '../lib/date';
+import { CoachingRecommendation, generateCoachingRecommendations } from '../lib/coachingEngine';
+import {
+  buildDisciplineScoreSummary,
+  buildHabitPredictions,
+  buildSmartDailyPlanner,
+} from '../lib/disciplineIntelligence';
+import {
+  isPlannerReminderEnabled,
+  requestNotificationPermission,
+  setPlannerReminderEnabled,
+} from '../services/notifications';
 import {
   Bar,
   BarChart,
@@ -16,9 +41,27 @@ import {
   YAxis,
 } from 'recharts';
 
+const recommendationTone = (priority: CoachingRecommendation['priority']) => {
+  if (priority === 'high') return 'border-rose-300/25 bg-rose-500/10';
+  if (priority === 'medium') return 'border-amber-300/25 bg-amber-500/10';
+  return 'border-emerald-300/25 bg-emerald-500/10';
+};
+
+const RecommendationIcon = ({ category }: { category: CoachingRecommendation['category'] }) => {
+  if (category === 'study') return <BookOpenText size={16} />;
+  if (category === 'hydration') return <Droplets size={16} />;
+  if (category === 'workout') return <Flame size={16} />;
+  if (category === 'sleep') return <AlarmClock size={16} />;
+  return <Sparkles size={16} />;
+};
+
 export const ProgressPage = () => {
-  const { logs, streakHistory, profile, currentLog } = useApp();
+  const { logs, streakHistory, profile, currentLog, notifications, tasks } = useApp();
   const [range, setRange] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+  const [plannerReminderEnabled, setPlannerReminderEnabledState] = useState(() =>
+    isPlannerReminderEnabled(),
+  );
+  const [plannerReminderMessage, setPlannerReminderMessage] = useState('');
   const rangeDays = range === 'daily' ? 1 : range === 'monthly' ? 30 : 7;
   const dateKeys = useMemo(() => getLastNDays(rangeDays), [rangeDays]);
   const trackingToday = todayKey();
@@ -92,25 +135,69 @@ export const ProgressPage = () => {
     });
   }, [dateKeys, logsByDate]);
 
-  const guideItems = useMemo(() => {
-    if (!profile) return [];
+  const coachingRecommendations = useMemo(
+    () =>
+      generateCoachingRecommendations({
+        profile,
+        logs,
+        currentLog,
+        notifications,
+      }),
+    [currentLog, logs, notifications, profile],
+  );
+  const disciplineScore = useMemo(
+    () =>
+      buildDisciplineScoreSummary({
+        profile,
+        logs,
+        currentLog,
+        tasks,
+      }),
+    [currentLog, logs, profile, tasks],
+  );
+  const smartPlanner = useMemo(
+    () =>
+      buildSmartDailyPlanner({
+        profile,
+        logs,
+        currentLog,
+        tasks,
+        notifications,
+      }),
+    [currentLog, logs, notifications, profile, tasks],
+  );
+  const habitPredictions = useMemo(
+    () =>
+      buildHabitPredictions({
+        profile,
+        logs,
+        currentLog,
+        tasks,
+        streakHistory,
+      }),
+    [currentLog, logs, profile, streakHistory, tasks],
+  );
 
-    const items = [
-      `Finish your ${profile.dailyTargets.workoutMinutes}-minute workout and tick off all workout tasks today.`,
-      `Study target is ${profile.dailyTargets.studyHours} hours. You are currently at ${(currentLog.studyMinutes / 60).toFixed(1)} hours.`,
-      `Hydration goal is ${profile.dailyTargets.waterLiters}L and calorie target is ${profile.dailyTargets.calories} kcal.`,
-    ];
-
-    if (profile.goal === 'Lose Fat') {
-      items.push('Keep meals protein-focused and add a short walk after eating whenever you can.');
-    } else if (profile.goal === 'Gain Muscle') {
-      items.push('Train with control, eat enough protein, and recover well so strength can go up steadily.');
-    } else {
-      items.push('Stay balanced today: moderate workout intensity, steady meals, and enough sleep tonight.');
+  const handlePlannerReminderToggle = async () => {
+    if (plannerReminderEnabled) {
+      setPlannerReminderEnabled(false);
+      setPlannerReminderEnabledState(false);
+      setPlannerReminderMessage('AI planner reminders disabled on this device.');
+      window.setTimeout(() => setPlannerReminderMessage(''), 2400);
+      return;
     }
 
-    return items;
-  }, [currentLog.studyMinutes, profile]);
+    const permission = await requestNotificationPermission();
+    if (permission.permission === 'granted') {
+      setPlannerReminderEnabled(true);
+      setPlannerReminderEnabledState(true);
+      setPlannerReminderMessage('AI planner reminders enabled on mobile for this device.');
+    } else {
+      setPlannerReminderMessage(permission.message);
+    }
+
+    window.setTimeout(() => setPlannerReminderMessage(''), 2800);
+  };
 
   return (
     <div className="space-y-5 pb-28 sm:pb-24">
@@ -139,12 +226,214 @@ export const ProgressPage = () => {
         </div>
       </header>
 
+      <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+        <CardShell>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-black">Discipline Score</p>
+              <h3 className="mt-1 font-display text-2xl text-black">Unified daily signal</h3>
+            </div>
+            <div className="rounded-2xl bg-blue-100 p-3 text-black">
+              <TrendingUp size={18} />
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-[22px] border border-orange-400/20 bg-white/60 px-4 py-4 dark:bg-white/5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-3xl font-semibold text-black">
+                {disciplineScore?.score ?? 0}
+                <span className="ml-1 text-lg font-medium text-black/70 dark:text-orange-100/70">/100</span>
+              </p>
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                  disciplineScore?.trend === 'up'
+                    ? 'bg-emerald-500/20 text-emerald-100'
+                    : disciplineScore?.trend === 'down'
+                      ? 'bg-rose-500/20 text-rose-100'
+                      : 'bg-white/65 text-black dark:bg-white/10 dark:text-orange-100'
+                }`}
+              >
+                {disciplineScore?.trend === 'up' ? <ArrowUpRight size={12} className="mr-1" /> : null}
+                {disciplineScore?.trend === 'down' ? <ArrowDownRight size={12} className="mr-1" /> : null}
+                Trend{' '}
+                {disciplineScore?.trend === 'flat'
+                  ? 'steady'
+                  : `${disciplineScore?.trend === 'up' ? 'up' : 'down'} ${Math.abs(disciplineScore?.trendDelta || 0)}`}
+              </span>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs text-black/70 dark:text-orange-100/75">
+                  <span>Study (30%)</span>
+                  <span>{disciplineScore?.breakdown.study || 0}/30</span>
+                </div>
+                <ProgressBar value={((disciplineScore?.breakdown.study || 0) / 30) * 100} colorClass="bg-gradient-to-r from-sky-500 to-blue-500" />
+              </div>
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs text-black/70 dark:text-orange-100/75">
+                  <span>Health (30%)</span>
+                  <span>{disciplineScore?.breakdown.health || 0}/30</span>
+                </div>
+                <ProgressBar value={((disciplineScore?.breakdown.health || 0) / 30) * 100} colorClass="bg-gradient-to-r from-emerald-500 to-lime-500" />
+              </div>
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs text-black/70 dark:text-orange-100/75">
+                  <span>Tasks (40%)</span>
+                  <span>{disciplineScore?.breakdown.tasks || 0}/40</span>
+                </div>
+                <ProgressBar value={((disciplineScore?.breakdown.tasks || 0) / 40) * 100} colorClass="bg-gradient-to-r from-orange-500 to-amber-400" />
+              </div>
+            </div>
+          </div>
+        </CardShell>
+
+        <CardShell>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-black">Smart Daily Planner</p>
+              <h3 className="mt-1 font-display text-2xl text-black">AI-generated schedule</h3>
+            </div>
+            <div className="rounded-2xl bg-blue-100 p-3 text-black">
+              <CalendarClock size={18} />
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handlePlannerReminderToggle()}
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                plannerReminderEnabled
+                  ? 'bg-emerald-500/20 text-emerald-100'
+                  : 'bg-blue-100 text-black hover:bg-blue-200 dark:bg-orange-500/20 dark:text-orange-50 dark:hover:bg-orange-500/30'
+              }`}
+            >
+              {plannerReminderEnabled ? 'Planner reminders enabled' : 'Enable planner reminders'}
+            </button>
+            <span className="text-xs uppercase tracking-[0.15em] text-black/65 dark:text-orange-100/75">
+              Mobile notifications
+            </span>
+          </div>
+
+          <p className="muted-text mt-2 text-sm">{smartPlanner?.summary || 'Planner will appear once profile targets are set.'}</p>
+
+          {plannerReminderMessage ? (
+            <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-black dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-100">
+              {plannerReminderMessage}
+            </div>
+          ) : null}
+
+          <div className="mt-4 space-y-2.5">
+            {(smartPlanner?.blocks || []).map((block) => (
+              <div key={`${block.time}-${block.title}`} className="soft-surface rounded-[18px] border border-orange-400/15 px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-semibold text-black">{block.title}</p>
+                  <span className="rounded-full bg-white/65 px-2.5 py-1 text-xs font-semibold text-black dark:bg-white/10 dark:text-orange-100">
+                    {block.time}
+                  </span>
+                </div>
+                <p className="muted-text mt-1 text-sm">{block.detail}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-black">
+              <ListChecks size={16} />
+              Priority Tasks
+            </div>
+            <div className="space-y-2">
+              {(smartPlanner?.priorityTasks || []).length ? (
+                smartPlanner!.priorityTasks.map((task) => (
+                  <div key={task.id} className="soft-surface rounded-[16px] border border-orange-400/15 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-medium text-black">{task.title}</p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                          task.priority === 'high'
+                            ? 'bg-rose-500/20 text-rose-100'
+                            : task.priority === 'medium'
+                              ? 'bg-amber-500/20 text-amber-100'
+                              : 'bg-emerald-500/20 text-emerald-100'
+                        }`}
+                      >
+                        {task.priority}
+                      </span>
+                    </div>
+                    <p className="muted-text mt-1 text-xs">{task.reason}</p>
+                  </div>
+                ))
+              ) : (
+                <div className="soft-surface rounded-[16px] border border-orange-400/15 px-3 py-2 text-sm text-black">
+                  No pending due tasks right now.
+                </div>
+              )}
+            </div>
+          </div>
+        </CardShell>
+      </div>
+
       <CardShell>
-        <p className="text-sm uppercase tracking-[0.24em] text-black">AI Fitness Guide</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-black">Habit Prediction</p>
+            <h3 className="mt-1 font-display text-2xl text-black">Risk forecast for today</h3>
+          </div>
+          <div className="rounded-2xl bg-blue-100 p-3 text-black">
+            <Sparkles size={18} />
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          {habitPredictions.map((prediction) => (
+            <div
+              key={prediction.id}
+              className={`soft-surface rounded-[20px] border px-4 py-3 ${
+                prediction.direction === 'warning'
+                  ? 'border-rose-300/25 bg-rose-500/10'
+                  : 'border-emerald-300/25 bg-emerald-500/10'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold text-black">{prediction.title}</p>
+                <span className="rounded-full bg-white/65 px-2.5 py-1 text-xs font-semibold text-black dark:bg-white/10 dark:text-orange-100">
+                  {prediction.riskPercent}%
+                </span>
+              </div>
+              <p className="muted-text mt-2 text-sm">{prediction.message}</p>
+              <p className="mt-2 text-sm text-black dark:text-orange-100">{prediction.action}</p>
+            </div>
+          ))}
+        </div>
+      </CardShell>
+
+      <CardShell>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-black">AI Recommendation Engine</p>
+            <h3 className="mt-1 font-display text-2xl text-black">Smart coaching insights</h3>
+          </div>
+          <div className="rounded-2xl bg-blue-100 p-3 text-black">
+            <Brain size={18} />
+          </div>
+        </div>
         <div className="mt-4 space-y-3">
-          {guideItems.map((item) => (
-            <div key={item} className="soft-surface rounded-2xl px-4 py-3">
-              <p className="text-sm text-black">{item}</p>
+          {coachingRecommendations.map((recommendation) => (
+            <div
+              key={recommendation.id}
+              className={`soft-surface rounded-2xl border px-4 py-3 ${recommendationTone(recommendation.priority)}`}
+            >
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/65 text-black dark:bg-white/10 dark:text-orange-50">
+                  <RecommendationIcon category={recommendation.category} />
+                </span>
+                <div className="min-w-0">
+                  <p className="font-semibold text-black">{recommendation.title}</p>
+                  <p className="muted-text mt-1 text-sm">{recommendation.insight}</p>
+                  <p className="mt-2 text-sm text-black dark:text-orange-100">{recommendation.action}</p>
+                </div>
+              </div>
             </div>
           ))}
         </div>

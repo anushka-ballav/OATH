@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlarmClock, Bell, BookOpenText, Flame, MoonStar, Droplets, SunMedium } from 'lucide-react';
+import { AlarmClock, Bell, BookOpenText, Brain, Flame, MoonStar, Droplets, Sparkles, SunMedium } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { getLastSevenDays } from '../lib/date';
 import { CardShell } from '../components/CardShell';
@@ -12,6 +12,7 @@ import { WorkoutPlanCard } from '../components/WorkoutPlanCard';
 import { NutritionSummaryCard } from '../components/NutritionSummaryCard';
 import { BMICard } from '../components/BMICard';
 import { TasksCard } from '../components/TasksCard';
+import { CoachingRecommendation, generateCoachingRecommendations } from '../lib/coachingEngine';
 import { percent } from '../lib/utils';
 import { requestNotificationPermission, sendLocalNotification } from '../services/notifications';
 
@@ -83,6 +84,20 @@ const ProgressRing = ({ value }: { value: number }) => {
       </text>
     </svg>
   );
+};
+
+const recommendationTone = (priority: CoachingRecommendation['priority']) => {
+  if (priority === 'high') return 'border-rose-300/25 bg-rose-500/10';
+  if (priority === 'medium') return 'border-amber-300/25 bg-amber-500/10';
+  return 'border-emerald-300/25 bg-emerald-500/10';
+};
+
+const RecommendationIcon = ({ category }: { category: CoachingRecommendation['category'] }) => {
+  if (category === 'study') return <BookOpenText size={16} />;
+  if (category === 'hydration') return <Droplets size={16} />;
+  if (category === 'workout') return <Flame size={16} />;
+  if (category === 'sleep') return <AlarmClock size={16} />;
+  return <Sparkles size={16} />;
 };
 
 export const HomePage = () => {
@@ -174,6 +189,16 @@ export const HomePage = () => {
 
   const remainingCalories = Math.max(0, profile.dailyTargets.calories - currentLog.caloriesConsumed);
   const caloriesConsumedPercent = percent(currentLog.caloriesConsumed, profile.dailyTargets.calories);
+  const coachingRecommendations = useMemo(
+    () =>
+      generateCoachingRecommendations({
+        profile,
+        logs,
+        currentLog,
+        notifications,
+      }),
+    [currentLog, logs, notifications, profile],
+  );
 
   return (
     <div className="page-enter space-y-5 pb-28 sm:pb-24">
@@ -259,6 +284,43 @@ export const HomePage = () => {
           </div>
         </div>
       </header>
+
+      <div style={enterDelay(120)}>
+        <CardShell className="relative overflow-hidden rounded-[28px] border border-orange-400/20 bg-transparent">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-black">AI Recommendation Engine</p>
+              <h2 className="mt-1 font-display text-2xl text-black">Smart coaching for today</h2>
+              <p className="muted-text mt-2 text-sm">
+                Personalized actions based on your recent habits, consistency, and goal misses.
+              </p>
+            </div>
+            <div className="rounded-2xl bg-blue-100 p-3 text-black">
+              <Brain size={18} />
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {coachingRecommendations.map((recommendation) => (
+              <div
+                key={recommendation.id}
+                className={`soft-surface rounded-[20px] border px-4 py-3 ${recommendationTone(recommendation.priority)}`}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/65 text-black dark:bg-white/10 dark:text-orange-50">
+                    <RecommendationIcon category={recommendation.category} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-black">{recommendation.title}</p>
+                    <p className="muted-text mt-1 text-sm">{recommendation.insight}</p>
+                    <p className="mt-2 text-sm text-black dark:text-orange-100">{recommendation.action}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardShell>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[0.95fr_1.05fr]">
         <div style={enterDelay(160)}>

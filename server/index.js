@@ -1903,19 +1903,26 @@ const getQuestSummary = (dailyTargets, log) => {
   const workoutTargetCount = getWorkoutTargetCount(dailyTargets);
   const completedWorkoutCount = Array.isArray(log?.completedWorkoutTasks) ? log.completedWorkoutTasks.length : 0;
 
-  const questCount = 5;
-  const questsCompleted = [
-    Boolean(log?.wakeUpTime),
-    (Number(log?.studyMinutes) || 0) >= Math.max(0, parseNumber(dailyTargets?.studyHours, 0) * 60),
-    (Number(log?.waterIntakeMl) || 0) >= Math.max(0, parseNumber(dailyTargets?.waterLiters, 0) * 1000),
-    workoutTargetCount > 0 ? completedWorkoutCount >= workoutTargetCount : completedWorkoutCount > 0,
-    (Number(log?.caloriesConsumed) || 0) > 0 &&
+  const questFlags = {
+    wakeUp: Boolean(log?.wakeUpTime),
+    study:
+      (Number(log?.studyMinutes) || 0) >= Math.max(0, parseNumber(dailyTargets?.studyHours, 0) * 60),
+    water:
+      (Number(log?.waterIntakeMl) || 0) >= Math.max(0, parseNumber(dailyTargets?.waterLiters, 0) * 1000),
+    workout:
+      workoutTargetCount > 0 ? completedWorkoutCount >= workoutTargetCount : completedWorkoutCount > 0,
+    calories:
+      (Number(log?.caloriesConsumed) || 0) > 0 &&
       (Number(log?.caloriesConsumed) || 0) <= Math.max(0, parseNumber(dailyTargets?.calories, 0)),
-  ].filter(Boolean).length;
+  };
+
+  const questCount = 5;
+  const questsCompleted = Object.values(questFlags).filter(Boolean).length;
 
   return {
     questCount,
     questsCompleted,
+    questFlags,
   };
 };
 
@@ -1972,6 +1979,32 @@ const computeActivityPoints = (dailyTargets, log) => {
   );
 };
 
+const computeDailyMissionPoints = (dailyTargets, log) => {
+  if (!log || typeof log !== 'object') return 0;
+
+  const questSummary = getQuestSummary(dailyTargets, log);
+  const missions = [
+    questSummary.questCount > 0 && questSummary.questsCompleted >= questSummary.questCount ? 50 : 0,
+    (Number(log.waterIntakeMl) || 0) >= 2000 ? 20 : 0,
+    (Number(log.studyMinutes) || 0) >= 120 ? 30 : 0,
+  ];
+
+  return missions.reduce((total, value) => total + value, 0);
+};
+
+const computeConsistencyPercent = (dailyTargets, bucket, keys) => {
+  const safeKeys = Array.isArray(keys) ? keys : [];
+  if (!safeKeys.length) return 0;
+
+  const ratioSum = safeKeys.reduce((total, key) => {
+    const summary = getQuestSummary(dailyTargets, bucket?.[key]);
+    if (!summary.questCount) return total;
+    return total + summary.questsCompleted / summary.questCount;
+  }, 0);
+
+  return Math.max(0, Math.min(100, Math.round((ratioSum / safeKeys.length) * 100)));
+};
+
 const getLastSeenForUser = (store, userId, bucket) => {
   const userUpdatedAt = store.users?.[userId]?.updatedAt || null;
   const profileUpdatedAt = store.profiles?.[userId]?.updatedAt || null;
@@ -2022,6 +2055,7 @@ const buildLeaderboardEntry = (store, userId, friendLookup = {}) => {
   const points = rollingPoints + streakDays * 18;
   const trendPoints = computeActivityPoints(dailyTargets, latestLog) - computeActivityPoints(dailyTargets, previousLog);
   const questSummary = getQuestSummary(dailyTargets, latestLog);
+  const dailyMissionPoints = computeDailyMissionPoints(dailyTargets, latestLog);
   const league = resolveLeaderboardLeague(points);
   const level = Math.max(1, Math.floor(points / LEADERBOARD_LEVEL_XP) + 1);
   const xpProgress = points % LEADERBOARD_LEVEL_XP;
@@ -2031,6 +2065,14 @@ const buildLeaderboardEntry = (store, userId, friendLookup = {}) => {
     const summary = getQuestSummary(dailyTargets, bucket[key]);
     return summary.questsCompleted >= 4;
   }).length;
+  const perfectDays7d = lastSevenKeys.filter((key) => isPerfectDay(dailyTargets, bucket[key])).length;
+  const consistencyPercent = computeConsistencyPercent(dailyTargets, bucket, lastSevenKeys);
+  const challengeScore =
+    streakDays * 25 +
+    weeklyWins * 18 +
+    perfectDays7d * 22 +
+    Math.round(consistencyPercent * 2.2) +
+    dailyMissionPoints;
   const lastSeen = getLastSeenForUser(store, userId, bucket);
 
   return {
@@ -2054,6 +2096,11 @@ const buildLeaderboardEntry = (store, userId, friendLookup = {}) => {
     friendsSince: friendLookup[userId]?.createdAt || undefined,
     activityDate: latestKey || undefined,
     weeklyWins,
+    weeklyXp: rollingPoints,
+    dailyMissionPoints,
+    consistencyPercent,
+    perfectDays7d,
+    challengeScore,
   };
 };
 

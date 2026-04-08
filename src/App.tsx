@@ -1,5 +1,5 @@
-import { CSSProperties, useEffect, useMemo, useState } from 'react';
-import { Menu } from 'lucide-react';
+import { CSSProperties, Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Cloud, CloudOff, Menu } from 'lucide-react';
 import { BrandLogo } from './components/BrandLogo';
 import { FirstLaunchOverlay } from './components/FirstLaunchOverlay';
 import { EasterEggToast } from './components/EasterEggToast';
@@ -11,14 +11,21 @@ import { OnboardingForm } from './components/OnboardingForm';
 import { SidebarNav } from './components/SidebarNav';
 import { useApp } from './context/AppContext';
 import { AppTab } from './types';
-import { HomePage } from './pages/HomePage';
-import { ProgressPage } from './pages/ProgressPage';
-import { CorrelationPage } from './pages/CorrelationPage';
-import { ProfilePage } from './pages/ProfilePage';
-import { ScanFoodPage } from './pages/ScanFoodPage';
-import { LeaderboardPage } from './pages/LeaderboardPage';
-import { AICompanionPage } from './pages/AICompanionPage';
 import { classNames } from './lib/utils';
+
+const HomePage = lazy(() => import('./pages/HomePage').then((module) => ({ default: module.HomePage })));
+const ProgressPage = lazy(() => import('./pages/ProgressPage').then((module) => ({ default: module.ProgressPage })));
+const CorrelationPage = lazy(() =>
+  import('./pages/CorrelationPage').then((module) => ({ default: module.CorrelationPage })),
+);
+const ProfilePage = lazy(() => import('./pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
+const ScanFoodPage = lazy(() => import('./pages/ScanFoodPage').then((module) => ({ default: module.ScanFoodPage })));
+const LeaderboardPage = lazy(() =>
+  import('./pages/LeaderboardPage').then((module) => ({ default: module.LeaderboardPage })),
+);
+const AICompanionPage = lazy(() =>
+  import('./pages/AICompanionPage').then((module) => ({ default: module.AICompanionPage })),
+);
 
 const getInitialTab = (): AppTab => {
   const params = new URLSearchParams(window.location.search);
@@ -59,9 +66,14 @@ const getViewportShellMetrics = (viewportWidth: number, viewportHeight: number, 
   };
 };
 
+const TabLoadingFallback = () => (
+  <div className="soft-surface panel-hover h-[40vh] min-h-[260px] w-full animate-pulse rounded-3xl border border-blue-100/70 bg-gradient-to-b from-white/70 to-blue-50/40 dark:border-orange-500/35 dark:from-orange-500/15 dark:to-black/60" />
+);
+
 const App = () => {
   const {
     isReady,
+    isLiveSyncConnected,
     session,
     profile,
     login,
@@ -433,13 +445,29 @@ const App = () => {
             <div className="h-11 w-11 shrink-0" aria-hidden="true" />
           </div>
 
-          {tab === 'home' && <HomePage key={`home-${launchAnimationKey}`} />}
-          {tab === 'progress' && <ProgressPage />}
-          {tab === 'correlation' && <CorrelationPage />}
-          {tab === 'leaderboard' && <LeaderboardPage />}
-          {tab === 'companion' && <AICompanionPage />}
-          {tab === 'scan' && <ScanFoodPage />}
-          {tab === 'profile' && <ProfilePage />}
+          <div className="mb-3 flex justify-end">
+            <span
+              className={classNames(
+                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]',
+                isLiveSyncConnected
+                  ? 'border-emerald-300/45 bg-emerald-500/15 text-emerald-200'
+                  : 'border-orange-300/35 bg-orange-500/10 text-orange-100/85',
+              )}
+            >
+              {isLiveSyncConnected ? <Cloud size={12} /> : <CloudOff size={12} />}
+              {isLiveSyncConnected ? 'Live Sync Connected' : 'Live Sync Connecting'}
+            </span>
+          </div>
+
+          <Suspense fallback={<TabLoadingFallback />}>
+            {tab === 'home' && <HomePage key={`home-${launchAnimationKey}`} />}
+            {tab === 'progress' && <ProgressPage />}
+            {tab === 'correlation' && <CorrelationPage />}
+            {tab === 'leaderboard' && <LeaderboardPage />}
+            {tab === 'companion' && <AICompanionPage />}
+            {tab === 'scan' && <ScanFoodPage />}
+            {tab === 'profile' && <ProfilePage />}
+          </Suspense>
         </section>
       </div>
     </main>

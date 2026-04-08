@@ -1,6 +1,7 @@
 import { DailyLog, NotificationItem, TaskItem, UserProfile } from '../types';
+import { buildSmartDailyPlanner } from '../lib/disciplineIntelligence';
 
-type NotificationKind = 'wake' | 'study' | 'workout' | 'water' | 'tasks' | 'generic' | 'success';
+type NotificationKind = 'wake' | 'study' | 'workout' | 'water' | 'tasks' | 'planner' | 'generic' | 'success';
 
 type PermissionResult = {
   permission: NotificationPermission | 'unsupported';
@@ -22,6 +23,7 @@ export const defaultNotifications: NotificationItem[] = [
 ];
 
 const REMINDER_STORAGE_PREFIX = 'oath-reminder-sent-v1';
+const PLANNER_REMINDER_ENABLED_KEY = 'oath-planner-reminders-enabled-v1';
 
 const normalizeTime = (value: string, fallback: string) =>
   /^\d{2}:\d{2}$/.test(String(value || '').trim()) ? String(value).trim() : fallback;
@@ -50,6 +52,22 @@ const markReminderSent = (userId: string, dateKey: string, reminderId: string) =
     window.localStorage.setItem(reminderStorageKey(userId, dateKey, reminderId), new Date().toISOString());
   } catch {
     // Ignore storage failures for notifications.
+  }
+};
+
+export const isPlannerReminderEnabled = () => {
+  try {
+    return window.localStorage.getItem(PLANNER_REMINDER_ENABLED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+export const setPlannerReminderEnabled = (enabled: boolean) => {
+  try {
+    window.localStorage.setItem(PLANNER_REMINDER_ENABLED_KEY, String(Boolean(enabled)));
+  } catch {
+    // Ignore storage failures for notification preferences.
   }
 };
 
@@ -121,6 +139,13 @@ const themedNotificationConfig = (kind: NotificationKind) => {
         tag: 'oath-tasks',
         vibrate: [120, 60, 160] as number[],
         requireInteraction: true,
+      };
+    case 'planner':
+      return {
+        icon: '/icons/notification-oath.svg',
+        badge: '/icons/icon.svg',
+        tag: 'oath-planner',
+        vibrate: [110, 50, 110] as number[],
       };
     case 'success':
       return {
@@ -376,6 +401,43 @@ export const processScheduledNotifications = async ({
     if (!payload) continue;
 
     await showBrowserNotification(payload.title, payload.body, payload.kind);
+    markReminderSent(userId, dateKey, reminderKey);
+  }
+
+  if (!isPlannerReminderEnabled()) {
+    return;
+  }
+
+  const planner = buildSmartDailyPlanner({
+    profile,
+    logs: [log],
+    currentLog: log,
+    tasks,
+    notifications,
+  });
+
+  if (!planner?.blocks?.length) {
+    return;
+  }
+
+  const dateKey = toDateKey(now);
+  const PLANNER_LEAD_MINUTES = 10;
+  const PLANNER_WINDOW_AFTER_MINUTES = 25;
+
+  for (const [index, block] of planner.blocks.entries()) {
+    const blockMinutes = toMinutes(block.time);
+    const triggerMinutes = Math.max(0, blockMinutes - PLANNER_LEAD_MINUTES);
+    const reminderKey = `planner-${index}-${block.time}`;
+
+    if (nowMinutes < triggerMinutes) continue;
+    if (nowMinutes > blockMinutes + PLANNER_WINDOW_AFTER_MINUTES) continue;
+    if (readSentReminder(userId, dateKey, reminderKey)) continue;
+
+    await showBrowserNotification(
+      `📅 AI Planner: ${block.title}`,
+      `Starts at ${block.time}. ${block.detail}`,
+      'planner',
+    );
     markReminderSent(userId, dateKey, reminderKey);
   }
 };

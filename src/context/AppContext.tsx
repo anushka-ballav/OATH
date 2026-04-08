@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { todayKey } from '../lib/date';
@@ -22,6 +23,7 @@ import { achievementMeta, normalizeAchievementIds, type AchievementId } from '..
 import { computeUserScore } from '../lib/score';
 import { randomId } from '../lib/utils';
 import { defaultNotifications, processScheduledNotifications, sendLocalNotification } from '../services/notifications';
+import { isFirebaseConfigured } from '../services/firebase';
 import { fetchBmiHistory as apiFetchBmiHistory, recordBmi as apiRecordBmi } from '../services/bmi';
 import {
   createTask as apiCreateTask,
@@ -37,10 +39,15 @@ import {
 import { generateWorkoutPlanWithGroq } from '../services/workoutPlan';
 import {
   clearCloudData,
+  fetchUserSnapshot,
+  subscribeToDailyLogs,
   subscribeToLeaderboard,
+  subscribeToUserProfile,
+  subscribeToUserSnapshot,
   syncDailyLog,
   syncLeaderboardPresence,
   syncProfile,
+  syncUserSnapshot,
 } from '../services/persistence';
 import {
   AppState,
@@ -68,6 +75,7 @@ interface CompanionWorkoutRemovalRequest {
 
 interface AppContextValue extends AppState {
   isReady: boolean;
+  isLiveSyncConnected: boolean;
   currentLog: DailyLog;
   easterEggsTotal: number;
   markEasterEggFound(id: EasterEggId): void;
@@ -472,13 +480,42 @@ const buildStreakHistoryFromLogs = (profile: UserProfile | null, logs: DailyLog[
 };
 
 const shouldUseRemoteLogs = (logs: DailyLog[]) => !logs.some(hasMeaningfulLogData);
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackValue: T): Promise<T> => {
+  let timeoutId: number | undefined;
+
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = window.setTimeout(() => resolve(fallbackValue), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (typeof timeoutId === 'number') {
+      window.clearTimeout(timeoutId);
+    }
+  }
+};
+
+const hasOwn = <K extends string>(value: unknown, key: K): value is Record<K, unknown> =>
+  Boolean(value) && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key);
+
+const isSameValue = (first: unknown, second: unknown) => {
+  try {
+    return JSON.stringify(first) === JSON.stringify(second);
+  } catch {
+    return false;
+  }
+};
 
 export const AppProvider = ({ children }: PropsWithChildren) => {
   const [state, setState] = useState<AppState>(initialState);
   const [isReady, setIsReady] = useState(false);
+  const [isLiveSyncConnected, setIsLiveSyncConnected] = useState(false);
   const [currentDayKey, setCurrentDayKey] = useState(todayKey());
   const [lastEasterEggFound, setLastEasterEggFound] = useState<AppContextValue['lastEasterEggFound']>(null);
   const [lastAchievementUnlocked, setLastAchievementUnlocked] = useState<AppContextValue['lastAchievementUnlocked']>(null);
+  const pendingRemoteSyncSkipsRef = useRef(0);
+  const latestRemoteSnapshotUpdatedAtRef = useRef<string | null>(null);
 
   const hydrateSessionState = async (baseState: AppState) => {
     const userId = baseState.session?.userId;
@@ -491,6 +528,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     try {
       const remoteState = await fetchUserStateFromServer(userId || '', identifier);
       const resolvedUserId = remoteState.userId || userId || '';
+      const firebaseState = await withTimeout(
+        fetchUserSnapshot(resolvedUserId || userId || ''),
+        1400,
+        null,
+      );
       const aliasLocalState =
         resolvedUserId && resolvedUserId !== userId ? loadUserState(resolvedUserId) : null;
       const localProfile = baseState.profile ?? aliasLocalState?.profile ?? null;
@@ -500,17 +542,35 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       const localBmiHistory =
         baseState.bmiHistory.length ? baseState.bmiHistory : aliasLocalState?.bmiHistory ?? [];
 
-      const nextProfile = remoteState.profile ?? localProfile ?? null;
-      const nextLogs = remoteState.logs.length ? remoteState.logs : localLogs;
-      const nextTasks = remoteState.tasks.length ? remoteState.tasks : localTasks;
-      const nextBmiHistory = remoteState.bmiHistory.length ? remoteState.bmiHistory : localBmiHistory;
+      const nextProfile = remoteState.profile ?? firebaseState?.profile ?? localProfile ?? null;
+      const nextLogs = remoteState.logs.length
+        ? remoteState.logs
+        : firebaseState?.logs?.length
+          ? firebaseState.logs
+          : localLogs;
+      const nextTasks = remoteState.tasks.length
+        ? remoteState.tasks
+        : firebaseState?.tasks?.length
+          ? firebaseState.tasks
+          : localTasks;
+      const nextBmiHistory = remoteState.bmiHistory.length
+        ? remoteState.bmiHistory
+        : firebaseState?.bmiHistory?.length
+          ? firebaseState.bmiHistory
+          : localBmiHistory;
       const nextNotifications = remoteState.notifications.length
         ? remoteState.notifications
         : baseState.notifications?.length
           ? baseState.notifications
-          : aliasLocalState?.notifications ?? defaultNotifications;
+          : firebaseState?.notifications?.length
+            ? firebaseState.notifications
+            : aliasLocalState?.notifications ?? defaultNotifications;
       const nextStreakHistory =
-        baseState.streakHistory.length || !nextProfile
+        baseState.streakHistory.length
+          ? baseState.streakHistory
+          : firebaseState?.streakHistory?.length
+            ? firebaseState.streakHistory
+            : !nextProfile
           ? baseState.streakHistory
           : buildStreakHistoryFromLogs(nextProfile, nextLogs);
 
@@ -528,6 +588,20 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         bmiHistory: nextBmiHistory,
         notifications: nextNotifications,
         streakHistory: nextStreakHistory,
+        easterEggsFound:
+          baseState.easterEggsFound?.length
+            ? baseState.easterEggsFound
+            : firebaseState?.easterEggsFound ?? baseState.easterEggsFound,
+        achievementsUnlocked:
+          baseState.achievementsUnlocked?.length
+            ? baseState.achievementsUnlocked
+            : firebaseState?.achievementsUnlocked ?? baseState.achievementsUnlocked,
+        darkMode:
+          typeof baseState.darkMode === 'boolean'
+            ? baseState.darkMode
+            : typeof firebaseState?.darkMode === 'boolean'
+              ? firebaseState.darkMode
+              : baseState.darkMode,
       });
     } catch {
       return normalizeState(baseState);
@@ -543,9 +617,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         ...globalState,
         ...userState,
       });
+      setState(localState);
+      setIsReady(true);
+
       const hydrated = await hydrateSessionState(localState);
       setState(hydrated);
-      setIsReady(true);
     };
 
     void boot();
@@ -587,6 +663,209 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       document.documentElement.classList.toggle('dark', state.darkMode);
     }
   }, [isReady, state]);
+
+  useEffect(() => {
+    if (!isReady || !state.session?.userId) return;
+    if (pendingRemoteSyncSkipsRef.current > 0) {
+      pendingRemoteSyncSkipsRef.current -= 1;
+      return;
+    }
+
+    const userId = state.session.userId;
+    const timeout = window.setTimeout(() => {
+      void syncUserSnapshot(userId, {
+        profile: state.profile,
+        logs: state.logs,
+        tasks: state.tasks,
+        bmiHistory: state.bmiHistory,
+        streakHistory: state.streakHistory,
+        notifications: state.notifications,
+        easterEggsFound: state.easterEggsFound,
+        achievementsUnlocked: state.achievementsUnlocked,
+        darkMode: state.darkMode,
+      });
+    }, 650);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [
+    isReady,
+    state.session?.userId,
+    state.profile,
+    state.logs,
+    state.tasks,
+    state.bmiHistory,
+    state.streakHistory,
+    state.notifications,
+    state.easterEggsFound,
+    state.achievementsUnlocked,
+    state.darkMode,
+  ]);
+
+  useEffect(() => {
+    if (!isReady || !state.session?.userId || !isFirebaseConfigured) {
+      setIsLiveSyncConnected(false);
+      return;
+    }
+
+    const userId = state.session.userId;
+    pendingRemoteSyncSkipsRef.current = 0;
+    latestRemoteSnapshotUpdatedAtRef.current = null;
+    setIsLiveSyncConnected(true);
+
+    const unsubscribeSnapshot = subscribeToUserSnapshot(userId, (snapshot) => {
+      if (!snapshot) return;
+
+      const snapshotUpdatedAt = typeof snapshot.updatedAt === 'string' ? snapshot.updatedAt : null;
+      if (
+        snapshotUpdatedAt &&
+        latestRemoteSnapshotUpdatedAtRef.current &&
+        snapshotUpdatedAt < latestRemoteSnapshotUpdatedAtRef.current
+      ) {
+        return;
+      }
+
+      setState((prev) => {
+        if (prev.session?.userId !== userId) return prev;
+
+        const candidate = normalizeState({
+          ...prev,
+          profile: hasOwn(snapshot, 'profile') ? (snapshot.profile as UserProfile | null) : prev.profile,
+          tasks:
+            hasOwn(snapshot, 'tasks') && Array.isArray(snapshot.tasks)
+              ? (snapshot.tasks as TaskItem[])
+              : prev.tasks,
+          bmiHistory:
+            hasOwn(snapshot, 'bmiHistory') && Array.isArray(snapshot.bmiHistory)
+              ? (snapshot.bmiHistory as BMIEntry[])
+              : prev.bmiHistory,
+          streakHistory:
+            hasOwn(snapshot, 'streakHistory') && Array.isArray(snapshot.streakHistory)
+              ? (snapshot.streakHistory as AppState['streakHistory'])
+              : prev.streakHistory,
+          notifications:
+            hasOwn(snapshot, 'notifications') && Array.isArray(snapshot.notifications)
+              ? (snapshot.notifications as NotificationItem[])
+              : prev.notifications,
+          easterEggsFound: hasOwn(snapshot, 'easterEggsFound')
+            ? (snapshot.easterEggsFound as AppState['easterEggsFound'])
+            : prev.easterEggsFound,
+          achievementsUnlocked: hasOwn(snapshot, 'achievementsUnlocked')
+            ? (snapshot.achievementsUnlocked as AppState['achievementsUnlocked'])
+            : prev.achievementsUnlocked,
+          darkMode:
+            hasOwn(snapshot, 'darkMode') && typeof snapshot.darkMode === 'boolean'
+              ? snapshot.darkMode
+              : prev.darkMode,
+        });
+
+        const hasChanges =
+          !isSameValue(prev.profile, candidate.profile) ||
+          !isSameValue(prev.tasks, candidate.tasks) ||
+          !isSameValue(prev.bmiHistory, candidate.bmiHistory) ||
+          !isSameValue(prev.streakHistory, candidate.streakHistory) ||
+          !isSameValue(prev.notifications, candidate.notifications) ||
+          !isSameValue(prev.easterEggsFound, candidate.easterEggsFound) ||
+          !isSameValue(prev.achievementsUnlocked, candidate.achievementsUnlocked) ||
+          prev.darkMode !== candidate.darkMode;
+
+        if (!hasChanges) return prev;
+
+        if (snapshotUpdatedAt) {
+          latestRemoteSnapshotUpdatedAtRef.current = snapshotUpdatedAt;
+        }
+        pendingRemoteSyncSkipsRef.current += 1;
+
+        return {
+          ...prev,
+          profile: candidate.profile,
+          tasks: candidate.tasks,
+          bmiHistory: candidate.bmiHistory,
+          streakHistory: candidate.streakHistory,
+          notifications: candidate.notifications,
+          easterEggsFound: candidate.easterEggsFound,
+          achievementsUnlocked: candidate.achievementsUnlocked,
+          darkMode: candidate.darkMode,
+        };
+      });
+    });
+
+    const unsubscribeProfile = subscribeToUserProfile(userId, (profile) => {
+      if (!profile) return;
+      const normalizedProfile = normalizeProfile(profile);
+      if (!normalizedProfile) return;
+
+      setState((prev) => {
+        if (prev.session?.userId !== userId) return prev;
+        if (isSameValue(prev.profile, normalizedProfile)) return prev;
+
+        const nextLogs = prev.logs.map((log) =>
+          withCaloriesBreakdown({
+            ...log,
+            workoutPlanCaloriesBurned: getWorkoutPlanCaloriesForLog(normalizedProfile, log.completedWorkoutTasks),
+          }),
+        );
+        const nextStreakHistory = buildStreakHistoryFromLogs(normalizedProfile, nextLogs);
+
+        pendingRemoteSyncSkipsRef.current += 1;
+        return {
+          ...prev,
+          profile: normalizedProfile,
+          logs: nextLogs,
+          streakHistory: nextStreakHistory,
+        };
+      });
+    });
+
+    const unsubscribeLogs = subscribeToDailyLogs(userId, (remoteLogs) => {
+      if (!remoteLogs.length) return;
+
+      setState((prev) => {
+        if (prev.session?.userId !== userId) return prev;
+
+        const mergedByDate = new Map(prev.logs.map((log) => [log.date, log]));
+        remoteLogs.forEach((remoteLog) => {
+          const completedWorkoutTasks = Array.isArray(remoteLog.completedWorkoutTasks)
+            ? remoteLog.completedWorkoutTasks
+            : [];
+          const syncedLog = withCaloriesBreakdown({
+            ...defaultLog(),
+            ...remoteLog,
+            completedWorkoutTasks,
+            workoutPlanCaloriesBurned: getWorkoutPlanCaloriesForLog(prev.profile, completedWorkoutTasks),
+          });
+          mergedByDate.set(syncedLog.date, syncedLog);
+        });
+
+        const mergedLogs = [...mergedByDate.values()].sort((first, second) =>
+          first.date.localeCompare(second.date),
+        );
+        const nextStreakHistory = prev.profile
+          ? buildStreakHistoryFromLogs(prev.profile, mergedLogs)
+          : prev.streakHistory;
+
+        if (isSameValue(prev.logs, mergedLogs) && isSameValue(prev.streakHistory, nextStreakHistory)) {
+          return prev;
+        }
+
+        pendingRemoteSyncSkipsRef.current += 1;
+        return {
+          ...prev,
+          logs: mergedLogs,
+          streakHistory: nextStreakHistory,
+        };
+      });
+    });
+
+    return () => {
+      unsubscribeSnapshot?.();
+      unsubscribeProfile?.();
+      unsubscribeLogs?.();
+      latestRemoteSnapshotUpdatedAtRef.current = null;
+      setIsLiveSyncConnected(false);
+    };
+  }, [isReady, state.session?.userId]);
 
   const currentLog = useMemo(() => {
     return state.logs.find((log) => log.date === currentDayKey) ?? { ...defaultLog(), date: currentDayKey };
@@ -866,6 +1145,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const value: AppContextValue = {
     ...state,
     isReady,
+    isLiveSyncConnected,
     currentLog,
     easterEggsTotal: EASTER_EGGS_TOTAL,
     markEasterEggFound,
@@ -875,19 +1155,18 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     clearLastAchievementUnlocked,
     async login(session) {
       const savedUserState = loadUserState(session.userId);
-      setIsReady(false);
+      const localState = normalizeState({
+        ...initialState,
+        ...savedUserState,
+        session,
+        darkMode: state.darkMode,
+      });
 
-      const nextState = await hydrateSessionState(
-        normalizeState({
-          ...initialState,
-          ...savedUserState,
-          session,
-          darkMode: state.darkMode,
-        }),
-      );
-
-      setState(nextState);
+      setState(localState);
       setIsReady(true);
+
+      const nextState = await hydrateSessionState(localState);
+      setState(nextState);
     },
     logout() {
       try {

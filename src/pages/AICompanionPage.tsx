@@ -113,7 +113,9 @@ export const AICompanionPage = () => {
   } = useApp();
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState('AI is ready. Add your Groq key to use the smarter companion.');
+  const [status, setStatus] = useState(
+    'Assistant is ready. Ask anything about study, workouts, hydration, or today’s routine.',
+  );
   const [conversation, setConversation] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([
     {
       role: 'assistant',
@@ -296,7 +298,7 @@ export const AICompanionPage = () => {
           ? `Companion updated your workout: ${actionNotes[0]}`
           : data.source === 'groq'
             ? 'Live Groq AI response generated.'
-            : 'Using local fallback because no Groq key is configured or the AI request failed.',
+            : 'Fallback mode is active right now, but your guidance and workout updates still work.',
       );
     } catch (error) {
       const errorMessage =

@@ -1,13 +1,22 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowDownRight,
+  ArrowUpRight,
+  Award,
+  CalendarDays,
   CheckCircle2,
   Copy,
   Crown,
+  Droplets,
+  Flame,
   Gift,
+  BookOpenText,
   Link2,
   LoaderCircle,
+  Medal,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   Swords,
   Target,
   Trophy,
@@ -17,6 +26,7 @@ import {
 import { CardShell } from '../components/CardShell';
 import { ProgressBar } from '../components/ProgressBar';
 import { useApp } from '../context/AppContext';
+import { generateSmartChallenges, SmartChallenge, SmartChallengeTier } from '../lib/smartChallenges';
 import { classNames } from '../lib/utils';
 import {
   acceptLeaderboardInvite,
@@ -65,11 +75,37 @@ const getLeagueTone = (league?: string) => {
   }
 };
 
+const getPodiumBadge = (rank: number) => {
+  if (rank === 1) return { label: 'Gold', icon: '🥇', tone: 'border-amber-300/40 bg-amber-400/20 text-amber-100' };
+  if (rank === 2) return { label: 'Silver', icon: '🥈', tone: 'border-slate-300/40 bg-slate-300/20 text-slate-100' };
+  return { label: 'Bronze', icon: '🥉', tone: 'border-orange-400/40 bg-orange-500/20 text-orange-100' };
+};
+
+const getChallengeTierTone = (tier: SmartChallengeTier) => {
+  if (tier === 'Gold') return 'border-amber-300/35 bg-amber-400/15 text-amber-100';
+  if (tier === 'Silver') return 'border-slate-300/35 bg-slate-400/15 text-slate-100';
+  return 'border-orange-400/30 bg-orange-500/15 text-orange-100';
+};
+
+const getChallengeFocusMeta = (focus: SmartChallenge['focus']) => {
+  if (focus === 'hydration') return { icon: <Droplets size={16} />, label: 'Hydration' };
+  if (focus === 'study') return { icon: <BookOpenText size={16} />, label: 'Study' };
+  if (focus === 'workout') return { icon: <Award size={16} />, label: 'Workout' };
+  if (focus === 'wake') return { icon: <CalendarDays size={16} />, label: 'Wake-Up' };
+  if (focus === 'calories') return { icon: <Target size={16} />, label: 'Calories' };
+  return { icon: <Sparkles size={16} />, label: 'Consistency' };
+};
+
 type RankedEntry = LeaderboardEntry & {
   rank: number;
   displayName: string;
   leadFromAbove: number;
   isYou: boolean;
+  rankDelta?: number;
+};
+type ChallengeRankedEntry = RankedEntry & {
+  challengeRank: number;
+  challengeValue: number;
 };
 
 const rankEntries = (entries: LeaderboardEntry[], currentUserId?: string) =>
@@ -82,6 +118,22 @@ const rankEntries = (entries: LeaderboardEntry[], currentUserId?: string) =>
       displayName: entry.userId === currentUserId ? `${entry.name} (You)` : entry.name,
       leadFromAbove: index === 0 ? 0 : Math.max(0, items[index - 1].points - entry.points),
       isYou: entry.userId === currentUserId,
+    }));
+const rankByChallengeMetric = (
+  entries: RankedEntry[],
+  metric: (entry: RankedEntry) => number,
+): ChallengeRankedEntry[] =>
+  entries
+    .slice()
+    .sort((first, second) => {
+      const delta = metric(second) - metric(first);
+      if (delta !== 0) return delta;
+      return second.points - first.points;
+    })
+    .map((entry, index) => ({
+      ...entry,
+      challengeRank: index + 1,
+      challengeValue: metric(entry),
     }));
 
 const BadgeRow = ({ badges }: { badges?: string[] }) => {
@@ -101,16 +153,25 @@ const BadgeRow = ({ badges }: { badges?: string[] }) => {
   );
 };
 
-const PodiumCard = ({ entry }: { entry: RankedEntry }) => (
-  <div
-    className={classNames(
-      'glass rounded-[26px] border border-orange-400/20 p-4 text-center',
-      entry.rank === 1 ? 'xl:-translate-y-3' : '',
-    )}
-  >
-    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500/90 via-amber-400/85 to-sky-500/80 text-lg font-bold text-white">
-      #{entry.rank}
-    </div>
+const PodiumCard = ({ entry }: { entry: RankedEntry }) => {
+  const badge = getPodiumBadge(entry.rank);
+
+  return (
+    <div
+      className={classNames(
+        'glass rounded-[26px] border border-orange-400/20 p-4 text-center',
+        entry.rank === 1 ? 'xl:-translate-y-3' : '',
+      )}
+    >
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500/90 via-amber-400/85 to-sky-500/80 text-lg font-bold text-white">
+        #{entry.rank}
+      </div>
+      <div className="mt-3 flex items-center justify-center">
+        <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${badge.tone}`}>
+          <span aria-hidden="true">{badge.icon}</span>
+          {badge.label}
+        </span>
+      </div>
     <p className="mt-4 font-display text-xl text-black sm:text-2xl">{entry.displayName}</p>
     <div className="mt-2 flex items-center justify-center gap-2">
       <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getLeagueTone(entry.league)}`}>
@@ -123,8 +184,9 @@ const PodiumCard = ({ entry }: { entry: RankedEntry }) => (
     <p className="mt-4 text-3xl font-semibold text-black">{entry.points}</p>
     <p className="muted-text text-sm">Season XP</p>
     <BadgeRow badges={entry.badges} />
-  </div>
-);
+    </div>
+  );
+};
 
 const LeaderboardRow = ({
   entry,
@@ -132,67 +194,94 @@ const LeaderboardRow = ({
 }: {
   entry: RankedEntry;
   tone?: 'global' | 'friend';
-}) => (
-  <div
-    className={classNames(
-      'soft-surface rounded-[24px] border border-orange-400/15 px-4 py-4',
-      entry.isYou ? 'ring-1 ring-orange-400/35' : '',
-    )}
-  >
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500/20 to-sky-500/15 text-sm font-semibold text-black">
-            #{entry.rank}
-          </span>
-          <p className="truncate font-semibold text-black">{entry.displayName}</p>
-          <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${getLeagueTone(entry.league)}`}>
-            {entry.league}
-          </span>
-          {entry.isFriend ? (
-            <span className="rounded-full border border-sky-300/25 bg-sky-400/15 px-2.5 py-1 text-xs font-semibold text-sky-100">
-              Rival
+}) => {
+  const hasRankDelta = typeof entry.rankDelta === 'number' && entry.rankDelta !== 0;
+  const isRankUp = Number(entry.rankDelta) > 0;
+
+  return (
+    <div
+      className={classNames(
+        'soft-surface rounded-[24px] border border-orange-400/15 px-4 py-4',
+        entry.isYou ? 'ring-1 ring-orange-400/35' : '',
+      )}
+    >
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500/20 to-sky-500/15 text-sm font-semibold text-black">
+              #{entry.rank}
             </span>
-          ) : null}
-        </div>
+            <p className="truncate font-semibold text-black">{entry.displayName}</p>
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${getLeagueTone(entry.league)}`}>
+              {entry.league}
+            </span>
+            {entry.isFriend ? (
+              <span className="rounded-full border border-sky-300/25 bg-sky-400/15 px-2.5 py-1 text-xs font-semibold text-sky-100">
+                Rival
+              </span>
+            ) : null}
+            {hasRankDelta ? (
+              <span
+                className={classNames(
+                  'animate-pulse rounded-full border px-2.5 py-1 text-xs font-semibold',
+                  isRankUp
+                    ? 'border-emerald-300/35 bg-emerald-500/15 text-emerald-200'
+                    : 'border-rose-300/35 bg-rose-500/15 text-rose-200',
+                )}
+              >
+                {isRankUp ? <ArrowUpRight size={12} className="mr-1 inline" /> : <ArrowDownRight size={12} className="mr-1 inline" />}
+                {Math.abs(entry.rankDelta || 0)} rank
+              </span>
+            ) : null}
+          </div>
 
-        <div className="mt-3 grid gap-2 text-sm text-black/80 dark:text-orange-100/80 sm:grid-cols-2 xl:grid-cols-4">
-          <p>{entry.questsCompleted || 0}/{entry.questCount || 5} quests complete</p>
-          <p>{entry.streakDays || 0} day streak</p>
-          <p>{entry.weeklyWins || 0} strong days this week</p>
-          <p>{entry.isOnline ? 'Online now' : formatLastSeen(entry.lastSeen)}</p>
-        </div>
-
-        <div className="mt-3">
-          <ProgressBar
-            value={entry.questCount ? Math.round(((entry.questsCompleted || 0) / entry.questCount) * 100) : 0}
-            colorClass="bg-gradient-to-r from-orange-500 via-amber-400 to-sky-500"
-          />
-        </div>
-
-        <BadgeRow badges={entry.badges} />
-      </div>
-
-      <div className="w-full rounded-[22px] border border-orange-400/20 bg-white/60 px-4 py-3 text-left dark:bg-white/5 sm:w-auto sm:text-right">
-        <p className="text-sm uppercase tracking-[0.18em] text-black/65 dark:text-orange-100/75">
-          {tone === 'friend' ? 'Rival Score' : 'Season XP'}
-        </p>
-        <p className="mt-1 text-3xl font-semibold text-black">{entry.points}</p>
-        <div className="mt-2 space-y-1 text-xs text-black/70 dark:text-orange-100/75">
-          <p>Level {entry.level || 1}</p>
-          <p>{entry.xpToNextLevel || 0} XP to next level</p>
-          {entry.leadFromAbove > 0 ? <p>{entry.leadFromAbove} XP behind the player above</p> : <p>Holding first place</p>}
-          {(entry.trendPoints || 0) !== 0 ? (
-            <p className={entry.trendPoints! > 0 ? 'text-emerald-300' : 'text-rose-300'}>
-              {entry.trendPoints! > 0 ? '+' : ''}
-              {entry.trendPoints} from your previous session
+          <div className="mt-3 grid gap-2 text-sm text-black/80 dark:text-orange-100/80 sm:grid-cols-2 xl:grid-cols-4">
+            <p>{entry.questsCompleted || 0}/{entry.questCount || 5} quests complete</p>
+            <p className="inline-flex items-center gap-1">
+              <Flame size={14} className="text-orange-400" />
+              {entry.streakDays || 0} day streak
             </p>
-          ) : null}
+            <p>{entry.weeklyWins || 0} strong days this week</p>
+            <p>{entry.isOnline ? 'Online now' : formatLastSeen(entry.lastSeen)}</p>
+          </div>
+
+          <div className="mt-3">
+            <ProgressBar
+              value={entry.questCount ? Math.round(((entry.questsCompleted || 0) / entry.questCount) * 100) : 0}
+              colorClass="bg-gradient-to-r from-orange-500 via-amber-400 to-sky-500"
+            />
+          </div>
+
+          <BadgeRow badges={entry.badges} />
+        </div>
+
+        <div className="w-full rounded-[22px] border border-orange-400/20 bg-white/60 px-4 py-3 text-left dark:bg-white/5 sm:w-auto sm:min-w-[220px] sm:text-right">
+          <p className="text-sm uppercase tracking-[0.18em] text-black/65 dark:text-orange-100/75">
+            {tone === 'friend' ? 'Rival Score' : 'Season XP'}
+          </p>
+          <p className="mt-1 text-3xl font-semibold text-black">{entry.points}</p>
+          <div className="mt-2 space-y-1 text-xs text-black/70 dark:text-orange-100/75">
+            <p>Level {entry.level || 1}</p>
+            <p>{entry.xpToNextLevel || 0} XP to next level</p>
+            {entry.leadFromAbove > 0 ? <p>{entry.leadFromAbove} XP behind the player above</p> : <p>Holding first place</p>}
+            {(entry.trendPoints || 0) !== 0 ? (
+              <p className={entry.trendPoints! > 0 ? 'text-emerald-300' : 'text-rose-300'}>
+                {entry.trendPoints! > 0 ? '+' : ''}
+                {entry.trendPoints} from your previous session
+              </p>
+            ) : null}
+          </div>
+          <div className="mt-3">
+            <p className="mb-1 text-[11px] uppercase tracking-[0.16em] text-black/60 dark:text-orange-100/70">
+              XP Bar {entry.xpProgressPercent || 0}%
+            </p>
+            <ProgressBar value={entry.xpProgressPercent || 0} colorClass="bg-gradient-to-r from-amber-400 via-orange-500 to-fuchsia-500" />
+          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const MetricCard = ({
   icon,
@@ -217,18 +306,106 @@ const MetricCard = ({
   </CardShell>
 );
 
+const ChallengeBoardCard = ({
+  title,
+  subtitle,
+  icon,
+  entries,
+  valueLabel,
+  formatValue,
+}: {
+  title: string;
+  subtitle: string;
+  icon: ReactNode;
+  entries: ChallengeRankedEntry[];
+  valueLabel: string;
+  formatValue: (value: number) => string;
+}) => (
+  <CardShell>
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="text-sm uppercase tracking-[0.24em] text-black">{title}</p>
+        <p className="muted-text mt-1 text-sm">{subtitle}</p>
+      </div>
+      <div className="rounded-2xl bg-blue-100 p-3 text-black">{icon}</div>
+    </div>
+
+    <div className="mt-4 space-y-2.5">
+      {entries.slice(0, 3).map((entry) => (
+        <div
+          key={`${title}-${entry.userId || entry.id}`}
+          className={classNames(
+            'soft-surface flex items-center justify-between rounded-[20px] border border-orange-400/15 px-3 py-3',
+            entry.isYou ? 'ring-1 ring-orange-400/35' : '',
+          )}
+        >
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-black">
+              #{entry.challengeRank} {entry.displayName}
+            </p>
+            <p className="mt-1 text-xs uppercase tracking-[0.16em] text-black/65 dark:text-orange-100/75">
+              {valueLabel}
+            </p>
+          </div>
+          <p className="text-lg font-semibold text-black">{formatValue(entry.challengeValue)}</p>
+        </div>
+      ))}
+
+      {!entries.length ? (
+        <div className="soft-surface rounded-[20px] px-4 py-3 text-sm text-black">No synced players yet.</div>
+      ) : null}
+    </div>
+  </CardShell>
+);
+
+const SmartChallengeCard = ({ challenge }: { challenge: SmartChallenge }) => {
+  const focusMeta = getChallengeFocusMeta(challenge.focus);
+
+  return (
+    <div className="soft-surface rounded-[22px] border border-orange-400/15 px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/60 text-black dark:bg-white/10 dark:text-orange-50">
+              {focusMeta.icon}
+            </span>
+            <p className="truncate text-sm font-semibold text-black">{challenge.title}</p>
+          </div>
+          <p className="muted-text mt-2 text-sm">{challenge.reason}</p>
+        </div>
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${getChallengeTierTone(challenge.tier)}`}>
+          {challenge.tier}
+        </span>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-orange-400/20 bg-white/60 px-3 py-3 text-sm dark:bg-white/5">
+        <p className="text-black">{challenge.target}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.16em] text-black/65 dark:text-orange-100/75">
+          <span>{focusMeta.label}</span>
+          <span>•</span>
+          <span>{challenge.durationDays} days</span>
+          <span>•</span>
+          <span>+{challenge.xpReward} XP</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const LeaderboardPage = () => {
-  const { session, profile, currentLog, markEasterEggFound } = useApp();
+  const { session, profile, currentLog, logs, markEasterEggFound } = useApp();
   const [globalEntries, setGlobalEntries] = useState<LeaderboardEntry[]>([]);
   const [friendEntries, setFriendEntries] = useState<LeaderboardEntry[]>([]);
   const [activeInvite, setActiveInvite] = useState<LeaderboardInvite | null>(null);
   const [invitePreview, setInvitePreview] = useState<LeaderboardInvitePreview | null>(null);
+  const [rankDeltaMap, setRankDeltaMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [inviteMessage, setInviteMessage] = useState('');
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [isCreatingInvite, setIsCreatingInvite] = useState(false);
   const [isAcceptingInvite, setIsAcceptingInvite] = useState(false);
+  const previousGlobalRanksRef = useRef<Record<string, number>>({});
 
   const inviteCode = useMemo(() => getInviteCodeFromUrl(), []);
 
@@ -330,9 +507,48 @@ export const LeaderboardPage = () => {
     };
   }, [inviteCode, session?.userId]);
 
-  const rankedGlobal = useMemo(
+  const baseRankedGlobal = useMemo(
     () => rankEntries(globalEntries, session?.userId),
     [globalEntries, session?.userId],
+  );
+  useEffect(() => {
+    if (!baseRankedGlobal.length) {
+      previousGlobalRanksRef.current = {};
+      setRankDeltaMap({});
+      return;
+    }
+
+    const previous = previousGlobalRanksRef.current;
+    const nextMap: Record<string, number> = {};
+    const nextRanks: Record<string, number> = {};
+
+    baseRankedGlobal.forEach((entry) => {
+      const key = entry.userId || entry.id;
+      const previousRank = previous[key];
+      nextRanks[key] = entry.rank;
+
+      if (typeof previousRank === 'number' && previousRank !== entry.rank) {
+        nextMap[key] = previousRank - entry.rank;
+      }
+    });
+
+    previousGlobalRanksRef.current = nextRanks;
+    setRankDeltaMap(nextMap);
+
+    if (!Object.keys(nextMap).length) return;
+    const timeout = window.setTimeout(() => setRankDeltaMap({}), 2400);
+    return () => window.clearTimeout(timeout);
+  }, [baseRankedGlobal]);
+  const rankedGlobal = useMemo(
+    () =>
+      baseRankedGlobal.map((entry) => {
+        const key = entry.userId || entry.id;
+        return {
+          ...entry,
+          rankDelta: rankDeltaMap[key] ?? 0,
+        };
+      }),
+    [baseRankedGlobal, rankDeltaMap],
   );
   const rankedFriends = useMemo(
     () => rankEntries(friendEntries, session?.userId),
@@ -345,6 +561,63 @@ export const LeaderboardPage = () => {
   const podiumEntries = rankedGlobal.slice(0, 3);
   const outsidePodiumEntry = yourEntry && yourEntry.rank > 3 ? yourEntry : null;
   const friendsBehindYou = rankedFriends.filter((entry) => entry.userId !== session?.userId && (yourEntry?.points || 0) > entry.points).length;
+  const streakChallenge = useMemo(
+    () => rankByChallengeMetric(rankedGlobal, (entry) => entry.streakDays || 0),
+    [rankedGlobal],
+  );
+  const missionChallenge = useMemo(
+    () => rankByChallengeMetric(rankedGlobal, (entry) => entry.dailyMissionPoints || 0),
+    [rankedGlobal],
+  );
+  const weeklyChallenge = useMemo(
+    () => rankByChallengeMetric(rankedGlobal, (entry) => entry.weeklyXp || 0),
+    [rankedGlobal],
+  );
+  const consistencyChallenge = useMemo(
+    () => rankByChallengeMetric(rankedGlobal, (entry) => entry.consistencyPercent || 0),
+    [rankedGlobal],
+  );
+  const missionChecklist = useMemo(() => {
+    if (!profile) return [];
+    const workoutTargetCount = profile.dailyTargets.workoutPlan.dailyChecklist.length;
+    const completedWorkoutCount = currentLog.completedWorkoutTasks.length;
+    const calorieTarget = profile.dailyTargets.calories;
+
+    const allCoreTasksDone =
+      Boolean(currentLog.wakeUpTime) &&
+      currentLog.studyMinutes >= profile.dailyTargets.studyHours * 60 &&
+      currentLog.waterIntakeMl >= profile.dailyTargets.waterLiters * 1000 &&
+      (workoutTargetCount > 0 ? completedWorkoutCount >= workoutTargetCount : completedWorkoutCount > 0) &&
+      currentLog.caloriesConsumed > 0 &&
+      currentLog.caloriesConsumed <= calorieTarget;
+
+    return [
+      {
+        id: 'daily-perfect',
+        label: 'Complete all tracked tasks today',
+        points: 50,
+        completed: allCoreTasksDone,
+      },
+      {
+        id: 'water-2l',
+        label: 'Drink at least 2L water',
+        points: 20,
+        completed: currentLog.waterIntakeMl >= 2000,
+      },
+      {
+        id: 'study-2h',
+        label: 'Study at least 2 hours',
+        points: 30,
+        completed: currentLog.studyMinutes >= 120,
+      },
+    ];
+  }, [currentLog.caloriesConsumed, currentLog.completedWorkoutTasks.length, currentLog.studyMinutes, currentLog.waterIntakeMl, currentLog.wakeUpTime, profile]);
+  const missionPointsToday = missionChecklist.reduce(
+    (total, mission) => total + (mission.completed ? mission.points : 0),
+    0,
+  );
+  const missionMaxPoints = missionChecklist.reduce((total, mission) => total + mission.points, 0);
+  const smartChallenges = useMemo(() => generateSmartChallenges(profile, logs), [logs, profile]);
 
   const handleCopyInvite = async () => {
     if (!activeInvite?.inviteUrl) return;
@@ -475,6 +748,142 @@ export const LeaderboardPage = () => {
           label="Rivals Beaten"
           value={`${friendsBehindYou}`}
           hint={`${rankedFriends.length} friends tracked on your board`}
+        />
+      </div>
+
+      <CardShell>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-black">AI Smart Challenges</p>
+            <h2 className="mt-1 font-display text-2xl text-black">Personalized by your weak spots</h2>
+            <p className="muted-text mt-2 text-sm">
+              AI reads your recent pattern and gives focused challenges where you miss most.
+            </p>
+          </div>
+          <span className="self-start rounded-full border border-fuchsia-300/30 bg-fuchsia-500/15 px-3 py-1 text-xs font-semibold text-fuchsia-100">
+            Adaptive challenges
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          {smartChallenges.map((challenge) => (
+            <SmartChallengeCard key={challenge.id} challenge={challenge} />
+          ))}
+        </div>
+      </CardShell>
+
+      <div className="grid gap-5 xl:grid-cols-[1.05fr,0.95fr]">
+        <CardShell>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-black">Daily Habit Missions</p>
+              <h2 className="mt-1 font-display text-2xl text-black">Today&apos;s mission track</h2>
+              <p className="muted-text mt-2 text-sm">
+                Complete mission goals to stack points and climb the mission leaderboard.
+              </p>
+            </div>
+            <div className="rounded-[20px] border border-orange-400/20 bg-white/60 px-4 py-3 text-left dark:bg-white/5 sm:text-right">
+              <p className="text-xs uppercase tracking-[0.2em] text-black/60 dark:text-orange-100/70">Mission Points</p>
+              <p className="mt-1 text-2xl font-semibold text-black">
+                {missionPointsToday}/{missionMaxPoints}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {missionChecklist.map((mission) => (
+              <div
+                key={mission.id}
+                className={classNames(
+                  'soft-surface flex items-center justify-between rounded-[20px] border px-4 py-3',
+                  mission.completed ? 'border-emerald-300/30 bg-emerald-500/10' : 'border-orange-400/15',
+                )}
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-black">{mission.label}</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-black/65 dark:text-orange-100/75">
+                    +{mission.points} points
+                  </p>
+                </div>
+                <span
+                  className={classNames(
+                    'rounded-full px-3 py-1 text-xs font-semibold',
+                    mission.completed ? 'bg-emerald-500/20 text-emerald-100' : 'bg-white/60 text-black dark:bg-white/10 dark:text-orange-100',
+                  )}
+                >
+                  {mission.completed ? 'Done' : 'Pending'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </CardShell>
+
+        <CardShell>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.24em] text-black">Friend Battle</p>
+              <h2 className="mt-1 font-display text-2xl text-black">1v1 weekly sprint</h2>
+              <p className="muted-text mt-2 text-sm">
+                Best way to compete fast: compare your weekly XP against your top rival.
+              </p>
+            </div>
+            <span className="self-start rounded-full border border-sky-300/25 bg-sky-500/15 px-3 py-1 text-xs font-semibold text-sky-100">
+              {rankedFriends.length ? 'Live duel' : 'Invite needed'}
+            </span>
+          </div>
+
+          {rankedFriends.length ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {[rankedFriends[0], yourEntry].filter(Boolean).map((entry) => (
+                <div key={`duel-${entry!.userId || entry!.id}`} className="soft-surface rounded-[20px] border border-orange-400/15 px-4 py-3">
+                  <p className="truncate font-semibold text-black">{entry!.displayName}</p>
+                  <p className="mt-2 text-2xl font-semibold text-black">{entry!.weeklyXp || 0}</p>
+                  <p className="text-xs uppercase tracking-[0.16em] text-black/65 dark:text-orange-100/75">
+                    weekly xp
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 soft-surface rounded-[20px] px-4 py-3 text-sm text-black">
+              Invite one friend to unlock 1v1 battles like &quot;Who studies more in 3 days?&quot;
+            </div>
+          )}
+        </CardShell>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <ChallengeBoardCard
+          title="Streak Challenge"
+          subtitle="Longest discipline streak wins"
+          icon={<Flame size={18} />}
+          entries={streakChallenge}
+          valueLabel="Current streak"
+          formatValue={(value) => `${value}d`}
+        />
+        <ChallengeBoardCard
+          title="Hydration + Study Missions"
+          subtitle="Daily mission points race"
+          icon={<Droplets size={18} />}
+          entries={missionChallenge}
+          valueLabel="Mission points today"
+          formatValue={(value) => `${value}`}
+        />
+        <ChallengeBoardCard
+          title="Weekly Competition"
+          subtitle="Most productive this week"
+          icon={<CalendarDays size={18} />}
+          entries={weeklyChallenge}
+          valueLabel="Weekly XP"
+          formatValue={(value) => `${value}`}
+        />
+        <ChallengeBoardCard
+          title="Goal Consistency"
+          subtitle="Best completion percentage"
+          icon={<BookOpenText size={18} />}
+          entries={consistencyChallenge}
+          valueLabel="Consistency"
+          formatValue={(value) => `${value}%`}
         />
       </div>
 
