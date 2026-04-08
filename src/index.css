@@ -91,7 +91,8 @@ html.dark body::before {
   color: #000000;
   box-shadow:
     0 18px 40px rgba(15, 23, 42, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.03);
 }
 
 html.dark .glass {
@@ -121,11 +122,47 @@ html.dark .muted-text {
 .soft-surface {
   background: rgba(59, 130, 246, 0.1);
   color: #000000;
+  backdrop-filter: blur(18px) saturate(135%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 10px 24px rgba(15, 23, 42, 0.06);
 }
 
 html.dark .soft-surface {
   background: rgba(249, 115, 22, 0.16);
   color: #fff7ed;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 16px 36px rgba(0, 0, 0, 0.2);
+}
+
+.app-card-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.app-card-shell::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.8;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.22), transparent 28%),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 34%);
+}
+
+html.dark .app-card-shell::before {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 28%),
+    radial-gradient(circle at top right, rgba(249, 115, 22, 0.14), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(96, 165, 250, 0.08), transparent 30%);
+}
+
+.app-card-shell > * {
+  position: relative;
+  z-index: 1;
 }
 
 html.dark .text-black {
@@ -154,6 +191,50 @@ html.dark textarea,
 html.dark select {
   background-color: #121212;
   color: #f5f5f5;
+}
+
+input,
+textarea,
+select,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+select {
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    background-color 220ms ease,
+    transform 220ms ease;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  box-shadow:
+    0 0 0 4px rgba(249, 115, 22, 0.12),
+    0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+html.dark input:focus-visible,
+html.dark textarea:focus-visible,
+html.dark select:focus-visible {
+  box-shadow:
+    0 0 0 4px rgba(249, 115, 22, 0.18),
+    0 16px 32px rgba(0, 0, 0, 0.28);
 }
 
 html.dark ::placeholder {
@@ -542,6 +623,22 @@ html.dark.intro-minimal body {
   opacity: 0;
   transform: scale(0.6);
   transition: opacity 220ms ease, transform 520ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  background: linear-gradient(180deg, rgba(249, 115, 22, 0.65), rgba(96, 165, 250, 0.55));
 }
 
 .btn-glow:active::after {

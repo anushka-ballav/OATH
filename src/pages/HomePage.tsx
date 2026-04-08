@@ -111,6 +111,13 @@ export const HomePage = () => {
   } = useApp();
 
   const [caloriesBurned, setCaloriesBurnedInput] = useState(0);
+  const [notificationMessage, setNotificationMessage] = useState('');
+
+  const handleNotificationEnable = async () => {
+    const result = await requestNotificationPermission();
+    setNotificationMessage(result.message);
+    window.setTimeout(() => setNotificationMessage(''), 2600);
+  };
 
   const weeklyStudyData = useMemo(
     () =>
@@ -189,7 +196,7 @@ export const HomePage = () => {
           <div className="flex items-center gap-2 self-start sm:self-auto">
             <button
               type="button"
-              onClick={() => void requestNotificationPermission()}
+              onClick={() => void handleNotificationEnable()}
               className="btn-glow soft-surface panel-hover rounded-2xl p-3 active:scale-[0.99]"
               aria-label="Notifications"
             >
@@ -260,7 +267,7 @@ export const HomePage = () => {
             profile={profile}
             onMark={async (timeValue) => {
               await markWakeUp(timeValue);
-              sendLocalNotification('Wake-up saved', 'Your wake-up time has been updated for today.');
+              sendLocalNotification('☀️ Wake-up saved', 'Your OATH morning checkpoint is locked for today.', 'wake');
             }}
           />
         </div>
@@ -270,7 +277,7 @@ export const HomePage = () => {
             goalMinutes={profile.dailyTargets.studyHours * 60}
             onSave={async (minutes) => {
               await addStudyMinutes(minutes);
-              sendLocalNotification('Study session saved', `Added ${minutes} study minutes to today.`);
+              sendLocalNotification('📘 Study session saved', `Added ${minutes} focused minutes to today’s progress.`, 'study');
             }}
           />
         </div>
@@ -283,11 +290,11 @@ export const HomePage = () => {
             profile={profile}
             onAdd={async (amount) => {
               await addWater(amount);
-              sendLocalNotification('Hydration update', `Added ${amount}ml water.`);
+              sendLocalNotification('💧 Hydration flow', `+${amount}ml added. Keep the OATH wave going.`, 'water');
             }}
             onRemove={async (amount) => {
               await removeWater(amount);
-              sendLocalNotification('Hydration update', `Removed ${amount}ml water.`);
+              sendLocalNotification('💧 Hydration adjusted', `-${amount}ml removed from today’s water count.`, 'water');
             }}
           />
         </div>
@@ -362,7 +369,7 @@ export const HomePage = () => {
             history={bmiHistory}
             onRecord={async (heightCm, weightKg) => {
               await recordBmi(heightCm, weightKg);
-              sendLocalNotification('BMI saved', 'Your BMI entry has been added to history.');
+              sendLocalNotification('✨ BMI saved', 'Your body metrics are now updated in OATH.', 'success');
             }}
           />
         </div>
@@ -372,7 +379,7 @@ export const HomePage = () => {
             goals={goalsSummary}
             onCreate={async (title, dueAtIso) => {
               await createTask(title, dueAtIso);
-              sendLocalNotification('Task added', 'Your checklist was updated.');
+              sendLocalNotification('🌙 Checklist updated', 'Your evening board has a new task now.', 'tasks');
             }}
             onToggle={async (taskId) => {
               await toggleTask(taskId);
@@ -416,13 +423,19 @@ export const HomePage = () => {
               </div>
               <button
                 type="button"
-                onClick={() => void requestNotificationPermission()}
+                onClick={() => void handleNotificationEnable()}
                 className="soft-surface panel-hover flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-black sm:w-auto"
               >
                 <Bell size={18} />
                 Enable
               </button>
             </div>
+
+            {notificationMessage ? (
+              <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-medium text-black dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-100">
+                {notificationMessage}
+              </div>
+            ) : null}
 
             <div className="mt-4 space-y-3">
               {notifications.map((item) => (

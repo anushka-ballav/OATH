@@ -49,6 +49,7 @@ export const ProfilePage = () => {
   const [resetting, setResetting] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
   const [dataMessage, setDataMessage] = useState('');
+  const [notificationMessage, setNotificationMessage] = useState('');
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [themeTapState, setThemeTapState] = useState<{ count: number; lastAt: number }>({ count: 0, lastAt: 0 });
   const [form, setForm] = useState({
@@ -121,6 +122,12 @@ export const ProfilePage = () => {
       }
       return { count, lastAt: now };
     });
+  };
+
+  const handleNotificationPermission = async () => {
+    const result = await requestNotificationPermission();
+    setNotificationMessage(result.message);
+    window.setTimeout(() => setNotificationMessage(''), 2600);
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -433,12 +440,18 @@ export const ProfilePage = () => {
           </div>
           <button
             type="button"
-            onClick={() => void requestNotificationPermission()}
+            onClick={() => void handleNotificationPermission()}
             className="w-full rounded-2xl bg-blue-50 px-4 py-3 text-sm font-semibold text-black sm:w-auto"
           >
             Ask browser
           </button>
         </div>
+
+        {notificationMessage ? (
+          <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-medium text-black dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-100">
+            {notificationMessage}
+          </div>
+        ) : null}
 
         <div className="mt-4 space-y-3">
           {notifications.map((item) => (

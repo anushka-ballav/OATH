@@ -230,6 +230,7 @@ const toDateKey = (date = new Date(), timeZone = getReminderTimeZone()) =>
 const DEFAULT_NOTIFICATION_SETTINGS = [
   { id: 'wake', label: 'Wake up reminder', time: '06:00', enabled: true },
   { id: 'study', label: 'Study reminder', time: '18:00', enabled: true },
+  { id: 'workout', label: 'Workout reminder', time: '19:00', enabled: true },
   { id: 'water', label: 'Drink water reminder', time: '10:00', enabled: true },
   { id: 'tasks', label: '8 PM unfinished tasks reminder', time: '20:00', enabled: true },
 ];

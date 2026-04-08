@@ -1,8 +1,22 @@
 import { DailyLog, NotificationItem, TaskItem, UserProfile } from '../types';
 
+type NotificationKind = 'wake' | 'study' | 'workout' | 'water' | 'tasks' | 'generic' | 'success';
+
+type PermissionResult = {
+  permission: NotificationPermission | 'unsupported';
+  message: string;
+};
+
+type ScheduledPayload = {
+  title: string;
+  body: string;
+  kind: NotificationKind;
+};
+
 export const defaultNotifications: NotificationItem[] = [
   { id: 'wake', label: 'Wake up reminder', time: '06:00', enabled: true },
   { id: 'study', label: 'Study reminder', time: '18:00', enabled: true },
+  { id: 'workout', label: 'Workout reminder', time: '19:00', enabled: true },
   { id: 'water', label: 'Drink water reminder', time: '10:00', enabled: true },
   { id: 'tasks', label: '8 PM unfinished tasks reminder', time: '20:00', enabled: true },
 ];
@@ -39,6 +53,63 @@ const markReminderSent = (userId: string, dateKey: string, reminderId: string) =
   }
 };
 
+const themedNotificationConfig = (kind: NotificationKind) => {
+  switch (kind) {
+    case 'wake':
+      return {
+        icon: '/icons/notification-oath.svg',
+        badge: '/icons/icon.svg',
+        tag: 'oath-wake',
+        vibrate: [120, 70, 120] as number[],
+      };
+    case 'study':
+      return {
+        icon: '/icons/notification-study.svg',
+        badge: '/icons/icon.svg',
+        tag: 'oath-study',
+        vibrate: [90, 60, 90, 60, 90] as number[],
+      };
+    case 'workout':
+      return {
+        icon: '/icons/notification-workout.svg',
+        badge: '/icons/icon.svg',
+        image: '/icons/notification-workout.svg',
+        tag: 'oath-workout',
+        vibrate: [140, 60, 140, 60, 180] as number[],
+      };
+    case 'water':
+      return {
+        icon: '/icons/notification-water.svg',
+        badge: '/icons/icon.svg',
+        image: '/icons/notification-water.svg',
+        tag: 'oath-water',
+        vibrate: [70, 40, 70, 40, 140] as number[],
+      };
+    case 'tasks':
+      return {
+        icon: '/icons/notification-oath.svg',
+        badge: '/icons/icon.svg',
+        tag: 'oath-tasks',
+        vibrate: [120, 60, 160] as number[],
+        requireInteraction: true,
+      };
+    case 'success':
+      return {
+        icon: '/icons/notification-oath.svg',
+        badge: '/icons/icon.svg',
+        tag: 'oath-success',
+        vibrate: [50, 25, 50] as number[],
+      };
+    default:
+      return {
+        icon: '/icons/notification-oath.svg',
+        badge: '/icons/icon.svg',
+        tag: 'oath-generic',
+        vibrate: [100] as number[],
+      };
+  }
+};
+
 const buildWorkoutRemaining = (profile: UserProfile, log: DailyLog) => {
   const checklist = Array.isArray(profile.dailyTargets?.workoutPlan?.dailyChecklist)
     ? profile.dailyTargets.workoutPlan.dailyChecklist
@@ -47,7 +118,12 @@ const buildWorkoutRemaining = (profile: UserProfile, log: DailyLog) => {
   return checklist.filter((task) => task?.id && !completed.has(task.id)).length;
 };
 
-const buildTaskReminderBody = (profile: UserProfile, log: DailyLog, tasks: TaskItem[], dateKey: string) => {
+const buildTaskReminderBody = (
+  profile: UserProfile,
+  log: DailyLog,
+  tasks: TaskItem[],
+  dateKey: string,
+): ScheduledPayload | null => {
   const pendingTasks = tasks.filter((task) => !task.completed && task.dueDate && task.dueDate <= dateKey);
   const waterRemaining = Math.max(0, profile.dailyTargets.waterLiters - log.waterIntakeMl / 1000);
   const studyRemainingMinutes = Math.max(0, profile.dailyTargets.studyHours * 60 - log.studyMinutes);
@@ -68,8 +144,9 @@ const buildTaskReminderBody = (profile: UserProfile, log: DailyLog, tasks: TaskI
   const summary = [taskSummary, ...goalBits].filter(Boolean).join(' • ');
 
   return {
-    title: '8 PM OATH reminder',
-    body: summary || 'You still have unfinished tasks or goals today.',
+    title: '🌙 OATH evening reset',
+    body: summary || 'You still have unfinished goals today.',
+    kind: 'tasks',
   };
 };
 
@@ -85,21 +162,33 @@ const buildScheduledReminder = ({
   log: DailyLog;
   tasks: TaskItem[];
   dateKey: string;
-}) => {
+}): ScheduledPayload | null => {
   switch (item.id) {
     case 'wake':
       return log.wakeUpTime
         ? null
         : {
-            title: 'Wake-up reminder',
-            body: 'Log your wake-up time to keep today’s streak on track.',
+            title: '☀️ OATH wake-up check',
+            body: 'Log your wake-up time and lock in today’s streak momentum.',
+            kind: 'wake',
           };
     case 'study': {
       const remainingMinutes = Math.max(0, profile.dailyTargets.studyHours * 60 - log.studyMinutes);
       return remainingMinutes > 0
         ? {
-            title: 'Study reminder',
-            body: `You still have ${remainingMinutes} minutes left for today’s study goal.`,
+            title: 'Study mode is waiting',
+            body: `${remainingMinutes} minutes are left in today’s focus block. Re-open OATH and lock in.`,
+            kind: 'study',
+          }
+        : null;
+    }
+    case 'workout': {
+      const workoutRemaining = buildWorkoutRemaining(profile, log);
+      return workoutRemaining > 0
+        ? {
+            title: 'Workout energy is still pending',
+            body: `${workoutRemaining} workout task${workoutRemaining === 1 ? '' : 's'} left. Finish the session and close your ring.`,
+            kind: 'workout',
           }
         : null;
     }
@@ -107,8 +196,9 @@ const buildScheduledReminder = ({
       const remainingLiters = Math.max(0, profile.dailyTargets.waterLiters - log.waterIntakeMl / 1000);
       return remainingLiters > 0.05
         ? {
-            title: 'Hydration reminder',
-            body: `Drink another ${remainingLiters.toFixed(1)}L to hit your water goal today.`,
+            title: 'Hydration flow is active',
+            body: `Take another ${remainingLiters.toFixed(1)}L sip wave to complete today’s water goal.`,
+            kind: 'water',
           }
         : null;
     }
@@ -119,19 +209,39 @@ const buildScheduledReminder = ({
   }
 };
 
-const showBrowserNotification = async (title: string, body: string) => {
+const showBrowserNotification = async (
+  title: string,
+  body: string,
+  kind: NotificationKind = 'generic',
+) => {
   if (!('Notification' in window) || Notification.permission !== 'granted') {
     return;
   }
 
+  const themed = themedNotificationConfig(kind);
+  const notificationOptions = {
+    body,
+    icon: themed.icon,
+    badge: themed.badge,
+    tag: themed.tag,
+    vibrate: themed.vibrate,
+  } as NotificationOptions;
+
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.ready;
+      const serviceWorkerOptions = {
+        ...notificationOptions,
+        ...(themed.image ? { image: themed.image } : {}),
+        ...(themed.requireInteraction ? { requireInteraction: themed.requireInteraction } : {}),
+        renotify: true,
+        data: {
+          kind,
+          url: '/',
+        },
+      } as NotificationOptions;
       await registration.showNotification(title, {
-        body,
-        icon: '/icons/icon.svg',
-        badge: '/icons/icon.svg',
-        tag: title,
+        ...serviceWorkerOptions,
       });
       return;
     } catch {
@@ -139,22 +249,62 @@ const showBrowserNotification = async (title: string, body: string) => {
     }
   }
 
-  new Notification(title, {
-    body,
-    icon: '/icons/icon.svg',
-  });
+  new Notification(title, notificationOptions);
 };
 
-export const requestNotificationPermission = async () => {
+export const requestNotificationPermission = async (): Promise<PermissionResult> => {
   if (!('Notification' in window)) {
-    return 'unsupported';
+    return {
+      permission: 'unsupported',
+      message: 'This phone/browser does not support web notifications.',
+    };
   }
 
-  return Notification.requestPermission();
+  if (Notification.permission === 'granted') {
+    await showBrowserNotification(
+      '✨ OATH notifications are ready',
+      'Your reminders now use the OATH theme on this device.',
+      'success',
+    );
+    return {
+      permission: 'granted',
+      message: 'Notifications are already enabled on this device.',
+    };
+  }
+
+  const permission = await Notification.requestPermission();
+
+  if (permission === 'granted') {
+    await showBrowserNotification(
+      '✨ OATH notifications are on',
+      'You’ll now receive themed study, hydration, and evening reminders here.',
+      'success',
+    );
+    return {
+      permission,
+      message: 'Notifications enabled successfully.',
+    };
+  }
+
+  if (permission === 'denied') {
+    return {
+      permission,
+      message: 'Notifications are blocked. Allow them in your phone browser or PWA settings.',
+    };
+  }
+
+  return {
+    permission,
+    message: 'Notification permission was dismissed.',
+  };
 };
 
-export const sendLocalNotification = (title: string, body: string) => {
-  void showBrowserNotification(title, body);
+export const sendLocalNotification = (
+  title: string,
+  body: string,
+  kind: NotificationKind = 'generic',
+) => {
+  void showBrowserNotification(title, body, kind);
 };
 
 export const processScheduledNotifications = async ({
@@ -180,9 +330,7 @@ export const processScheduledNotifications = async ({
   const dateKey = toDateKey(now);
 
   for (const defaultItem of defaultNotifications) {
-    const currentItem =
-      notifications.find((item) => item.id === defaultItem.id) ??
-      defaultItem;
+    const currentItem = notifications.find((item) => item.id === defaultItem.id) ?? defaultItem;
 
     if (!currentItem.enabled) continue;
     if (nowMinutes < toMinutes(normalizeTime(currentItem.time, defaultItem.time))) continue;
@@ -198,7 +346,7 @@ export const processScheduledNotifications = async ({
 
     if (!payload) continue;
 
-    await showBrowserNotification(payload.title, payload.body);
+    await showBrowserNotification(payload.title, payload.body, payload.kind);
     markReminderSent(userId, dateKey, currentItem.id);
   }
 };
