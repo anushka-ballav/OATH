@@ -1,4 +1,4 @@
-# Discipline AI Tracker (OATH)
+# OATH - Smart Discipline and Fitness Tracking System
 
 Mobile-first discipline tracker for workouts, study, hydration, wake-up routine, calories, BMI, tasks, and AI guidance.
 
