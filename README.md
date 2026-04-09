@@ -1,28 +1,27 @@
-# Discipline AI Tracker
+# Discipline AI Tracker (OATH)
 
-A mobile-friendly React + Tailwind application for tracking wake-up routines, study time, hydration, calories, and food scans with Firebase-ready persistence plus local fallbacks.
+Mobile-first discipline tracker for workouts, study, hydration, wake-up routine, calories, BMI, tasks, and AI guidance.
 
-## Features
+## Key features
 
-- Email OTP login through Brevo API (or Resend/Gmail) plus safe demo fallback
+- Email OTP login (Brevo / Resend / Gmail) with demo fallback
 - First-time onboarding with generated daily targets
-- Home dashboard with cards, streak counter, and weekly chart
-- Wake-up logging, study timer, water tracker, calories burned input
-- BMI calculator with saved BMI history per user
-- Daily task tracker with an 8 PM reminder email for incomplete tasks
-- Food recognition flow with Groq vision support, Spoonacular fallback, and manual correction
-- AI companion powered by Groq with a safe local fallback
-- Progress page with Daily / Weekly / Monthly charts + streak history
-- Profile editing, dark mode, notifications toggle, and reset option
+- Daily workout + study + water + wake-up tracking
+- AI companion (Groq) + food scan (Groq Vision / Spoonacular fallback)
+- Progress analytics (daily / weekly / monthly) with streak insights
+- BMI history + task system + reminder notifications
+- Firestore real-time sync across devices (same account)
+- In-app connection indicator: `Live Sync Connected`
 
-## Tech Stack
+## Tech stack
 
-- React + TypeScript + Vite
+- React 19 + TypeScript + Vite
 - Tailwind CSS
-- Firebase-ready Auth + Firestore setup
-- Recharts for graphs
+- Firebase Firestore
+- Express OTP/reminder server
+- Recharts
 
-## Run locally
+## Quick start
 
 1. Install dependencies:
 
@@ -30,88 +29,124 @@ A mobile-friendly React + Tailwind application for tracking wake-up routines, st
 npm install
 ```
 
-2. Copy environment values if you want Firebase, Groq AI, Spoonacular, or real email OTP enabled:
+2. Create env file:
 
 ```bash
 cp .env.example .env
 ```
 
-3. For Brevo OTP, add your Brevo API credentials to `.env`:
+3. Start app + server:
+
+```bash
+npm run dev
+```
+
+4. Open the Vite URL shown in terminal (usually `http://localhost:5173`).
+
+## Required environment setup
+
+### Firebase (for cross-device real-time sync)
+
+Set these in `.env`:
+
+```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+```
+
+Then in Firebase Console:
+
+1. Create/select project
+2. Enable **Cloud Firestore**
+3. Register web app and copy config values
+4. Ensure app points to the same `VITE_FIREBASE_PROJECT_ID`
+
+Firestore collections used by this app:
+
+- `users`
+- `dailyLogs`
+- `userSnapshots`
+- `leaderboard`
+
+### Email OTP provider (choose one)
+
+**Brevo**
 
 ```env
 EMAIL_PROVIDER=brevo
-BREVO_API_KEY=your-brevo-api-key
-BREVO_FROM=OATH <your-verified-sender@yourdomain.com>
+BREVO_API_KEY=
+BREVO_FROM=OATH <verified@domain.com>
 BREVO_BASE_URL=https://api.brevo.com/v3
 ```
 
-4. If you prefer Resend instead, add:
+**Resend**
 
 ```env
 EMAIL_PROVIDER=resend
-RESEND_API_KEY=your-resend-api-key
-RESEND_FROM=OATH <your-verified-sender@yourdomain.com>
+RESEND_API_KEY=
+RESEND_FROM=OATH <verified@domain.com>
 ```
 
-5. For Gmail-based sending during local development, add:
+**Gmail**
 
 ```env
 EMAIL_PROVIDER=gmail
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_app_password
-EMAIL_FROM=OATH <your_email@gmail.com>
+EMAIL_USER=you@gmail.com
+EMAIL_PASS=app_password
+EMAIL_FROM=OATH <you@gmail.com>
 ```
 
-6. If you want the hosted app to stay usable without a live email provider, enable demo OTP fallback:
+**Demo fallback**
 
 ```env
-EMAIL_PROVIDER=demo
 ALLOW_DEMO_OTP=true
 ```
 
-7. Task reminder emails run daily at 8 PM by default (time zone is configurable):
+### Groq (optional but recommended)
+
+```env
+GROQ_API_KEY=
+GROQ_MODEL=openai/gpt-oss-20b
+GROQ_VISION_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
+```
+
+### Reminder scheduling
 
 ```env
 ENABLE_TASK_REMINDERS=true
 TASK_REMINDER_CRON=0 20 * * *
 TASK_REMINDER_TIMEZONE=Asia/Kolkata
 APP_URL=http://localhost:5173
+OTP_SERVER_PORT=8787
 ```
 
-8. Add your Groq key if you want AI companion and AI food scanning:
+## Scripts
 
-```env
-GROQ_API_KEY=your-groq-api-key
-GROQ_MODEL=openai/gpt-oss-20b
-GROQ_VISION_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
-```
+- `npm run dev` - run client + server together
+- `npm run dev:client` - run Vite client
+- `npm run dev:server` - run Express server with watch mode
+- `npm run build` - production build
+- `npm run start` - run server in production mode
 
-9. Start the app:
+## Real-time sync notes
 
-```bash
-npm run dev
-```
+- Sync works when Firebase env vars are configured and user is signed in.
+- Home shell shows sync status badge:
+  - `Live Sync Connected`
+  - `Live Sync Connecting`
+- If Firestore Data tab is empty, verify:
+  - You are on **Firestore** (not Realtime Database)
+  - Project ID in `.env` matches Firebase console project
+  - You performed at least one app action after login
 
-10. Open the local Vite URL shown in the terminal.
+## Data storage behavior
 
-## Notes
+- Local fallback/cache: browser local storage
+- Firestore: cross-device real-time state and logs
+- Server JSON store: `server/data/store.json` (tasks/BMI APIs and fallback persistence)
 
-- `npm run dev` starts both the React client and the OTP email server.
-- Email provider selection:
-  - Set `EMAIL_PROVIDER=brevo` to force Brevo.
-  - Set `EMAIL_PROVIDER=resend` to force Resend.
-  - Set `EMAIL_PROVIDER=gmail` to force Gmail.
-  - If not set, the server prefers Brevo, then Resend, then Gmail.
-- The app works without Firebase and without Spoonacular.
-- If Groq is not configured or unavailable, AI companion falls back locally and food scan falls back to Spoonacular/mock/manual entry.
-- Set `ALLOW_DEMO_OTP=true` if you want hosted deployments like Render to show a demo OTP on-screen when email is not configured or temporarily fails.
-- Leaving `EMAIL_PROVIDER` unset is safest on Render because the server can auto-detect Brevo, Resend, or Gmail from whichever credentials you actually provide.
-- Firebase config enables the Firestore sync layer.
-- Browser notifications are simulated with the Notification API when permission is granted.
-
-## Data storage
-
-- Tasks + BMI history are stored server-side in `server/data/store.json` by default.
-- On cloud hosts, use a persistent disk if you want to keep tasks/BMI between deploys.
-"# OATH-FINAL" 
-"# OATH-FINAL" 
+For cloud deployment, attach persistent disk for `server/data/store.json` if you rely on server-side JSON persistence.
