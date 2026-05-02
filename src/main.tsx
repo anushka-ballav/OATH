@@ -5,7 +5,7 @@ import App from './App';
 import { AppProvider } from './context/AppContext';
 import './index.css';
 
-registerSW({ immediate: false });
+registerSW({ immediate: true });
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

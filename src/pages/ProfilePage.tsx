@@ -1,10 +1,17 @@
-import { FormEvent, useRef, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { MoonStar, RotateCcw, SunMedium, UserRoundPen } from 'lucide-react';
 import { CardShell } from '../components/CardShell';
 import { useApp } from '../context/AppContext';
 import { genderOptions, savePreferredGender } from '../lib/gender';
 import { exportStateBundle, importStateBundle } from '../lib/storage';
 import { requestNotificationPermission } from '../services/notifications';
+import { registerBackgroundPush } from '../services/pushNotifications';
+
+interface BeforeInstallPromptEvent extends Event {
+  readonly platforms: string[];
+  prompt(): Promise<void>;
+  readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
 
 const sanitizeIntegerInput = (value: string) => {
   const digits = String(value || '').replace(/\D+/g, '');
@@ -22,6 +29,13 @@ const sanitizeDecimalInput = (value: string) => {
   if (!fractionParts.length) return normalizedWhole || '0';
   return `${normalizedWhole || '0'}.${fraction}`;
 };
+
+const sanitizePhoneInput = (value: string) =>
+  String(value || '')
+    .replace(/[^\d+\s()-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trimStart()
+    .slice(0, 24);
 
 const parseNumberInput = (value: string, fallback: number) => {
   const parsed = Number(value);
@@ -50,9 +64,13 @@ export const ProfilePage = () => {
   const [savedMessage, setSavedMessage] = useState('');
   const [dataMessage, setDataMessage] = useState('');
   const [notificationMessage, setNotificationMessage] = useState('');
+  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installMessage, setInstallMessage] = useState('');
+  const [isAppInstalled, setIsAppInstalled] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [themeTapState, setThemeTapState] = useState<{ count: number; lastAt: number }>({ count: 0, lastAt: 0 });
   const [form, setForm] = useState({
+    phoneNumber: profile?.phoneNumber ?? '',
     gender: profile?.gender ?? 'Other',
     age: String(profile?.age ?? 0),
     height: String(profile?.height ?? 0),
@@ -61,6 +79,38 @@ export const ProfilePage = () => {
     dailyStudyHours: String(profile?.dailyStudyHours ?? profile?.dailyTargets?.studyHours ?? 3),
     dailyWorkoutMinutes: String(profile?.dailyWorkoutMinutes ?? profile?.dailyTargets?.workoutMinutes ?? 45),
   });
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    const updateInstallState = () => {
+      const installed = mediaQuery.matches || (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+      setIsAppInstalled(installed);
+    };
+    updateInstallState();
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPromptEvent(event as BeforeInstallPromptEvent);
+      setInstallMessage('');
+    };
+
+    const handleInstalled = () => {
+      setInstallPromptEvent(null);
+      setInstallMessage('OATH installed successfully.');
+      updateInstallState();
+      window.setTimeout(() => setInstallMessage(''), 2600);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleInstalled);
+    mediaQuery.addEventListener('change', updateInstallState);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleInstalled);
+      mediaQuery.removeEventListener('change', updateInstallState);
+    };
+  }, []);
 
   if (!profile || !session) return null;
 
@@ -126,8 +176,31 @@ export const ProfilePage = () => {
 
   const handleNotificationPermission = async () => {
     const result = await requestNotificationPermission();
-    setNotificationMessage(result.message);
+    let message = result.message;
+    if (result.permission === 'granted') {
+      const pushResult = await registerBackgroundPush(session);
+      message = pushResult.ok ? `${message} ${pushResult.message}` : `${message} ${pushResult.message}`;
+    }
+    setNotificationMessage(message);
     window.setTimeout(() => setNotificationMessage(''), 2600);
+  };
+
+  const handleInstallApp = async () => {
+    if (!installPromptEvent) {
+      setInstallMessage('Use browser menu → Add to Home screen to install.');
+      window.setTimeout(() => setInstallMessage(''), 2600);
+      return;
+    }
+
+    await installPromptEvent.prompt();
+    const choice = await installPromptEvent.userChoice;
+    if (choice.outcome === 'accepted') {
+      setInstallMessage('Installing OATH...');
+    } else {
+      setInstallMessage('Installation dismissed. You can try again anytime.');
+    }
+    setInstallPromptEvent(null);
+    window.setTimeout(() => setInstallMessage(''), 2600);
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -149,6 +222,7 @@ export const ProfilePage = () => {
       );
       await updateProfile({
         ...form,
+        phoneNumber: sanitizePhoneInput(form.phoneNumber),
         age,
         height,
         weight,
@@ -186,6 +260,7 @@ export const ProfilePage = () => {
             <p className="text-sm uppercase tracking-[0.24em] text-black">Profile</p>
             <h1 className="mt-2 font-display text-2xl sm:text-3xl">{profile.name}</h1>
             <p className="muted-text mt-2 text-sm">{session.identifier}</p>
+            {profile.phoneNumber ? <p className="muted-text mt-1 text-sm">{profile.phoneNumber}</p> : null}
           </div>
           <div className="soft-surface rounded-2xl p-3">
             <UserRoundPen size={18} />
@@ -328,6 +403,19 @@ export const ProfilePage = () => {
       <CardShell>
         <p className="text-sm uppercase tracking-[0.24em] text-black">Edit Goals</p>
         <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={handleSubmit}>
+          <label className="sm:col-span-2">
+            <span className="mb-2 block text-sm font-medium">Phone number (optional)</span>
+            <input
+              type="tel"
+              inputMode="tel"
+              value={form.phoneNumber}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, phoneNumber: sanitizePhoneInput(event.target.value) }))
+              }
+              className="w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-black outline-none focus:border-clay"
+              placeholder="+91 98xxxxxx10"
+            />
+          </label>
           <label>
             <span className="mb-2 block text-sm font-medium">Gender</span>
             <select
@@ -435,6 +523,29 @@ export const ProfilePage = () => {
       <CardShell>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
+            <p className="text-sm uppercase tracking-[0.24em] text-black">App Install</p>
+            <p className="muted-text mt-2 text-sm">
+              Install OATH for faster loading, full-screen experience, and better background reminder delivery.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleInstallApp()}
+            className="w-full rounded-2xl bg-blue-100 px-4 py-3 text-sm font-semibold text-black transition hover:bg-blue-200 dark:bg-orange-500/20 dark:text-orange-50 dark:hover:bg-orange-500/30 sm:w-auto"
+          >
+            {isAppInstalled ? 'Installed' : 'Install app'}
+          </button>
+        </div>
+        {installMessage ? (
+          <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-medium text-black dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-100">
+            {installMessage}
+          </div>
+        ) : null}
+      </CardShell>
+
+      <CardShell>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
             <p className="text-sm uppercase tracking-[0.24em] text-black">Notifications</p>
             <p className="muted-text mt-2 text-sm">Choose when each reminder should alert you and turn any reminder on or off.</p>
           </div>
@@ -508,6 +619,8 @@ export const ProfilePage = () => {
 
         <CardShell>
           <p className="text-sm uppercase tracking-[0.24em] text-black">Session</p>
+          <p className="muted-text mt-2 text-sm">Login email: {session.identifier}</p>
+          <p className="muted-text mt-1 text-sm">Phone: {profile.phoneNumber || 'Not added'}</p>
           <p className="muted-text mt-2 text-sm">
             Auth mode:{' '}
             {session.provider === 'email-otp' || session.provider === 'email-smtp'

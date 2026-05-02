@@ -26,6 +26,12 @@ const LeaderboardPage = lazy(() =>
 const AICompanionPage = lazy(() =>
   import('./pages/AICompanionPage').then((module) => ({ default: module.AICompanionPage })),
 );
+const AdminLoginPage = lazy(() =>
+  import('./pages/AdminLoginPage').then((module) => ({ default: module.AdminLoginPage })),
+);
+const AdminDashboardPage = lazy(() =>
+  import('./pages/AdminDashboardPage').then((module) => ({ default: module.AdminDashboardPage })),
+);
 
 const getInitialTab = (): AppTab => {
   const params = new URLSearchParams(window.location.search);
@@ -33,6 +39,7 @@ const getInitialTab = (): AppTab => {
 };
 
 const SIDEBAR_COLLAPSED_KEY = 'oath-sidebar-collapsed';
+const ADMIN_TOKEN_KEY = 'oath-admin-token';
 const FIRST_LAUNCH_KEY_PREFIX = 'oath-first-launch-done-';
 const LEGACY_FIRST_LAUNCH_KEY = 'oath-first-launch-done';
 
@@ -93,6 +100,14 @@ const App = () => {
   const [logoTapState, setLogoTapState] = useState<{ count: number; lastAt: number }>({ count: 0, lastAt: 0 });
   const [showFirstLaunch, setShowFirstLaunch] = useState(false);
   const [launchAnimationKey, setLaunchAnimationKey] = useState(0);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [adminToken, setAdminToken] = useState(() => {
+    try {
+      return window.localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     try {
       return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
@@ -327,12 +342,53 @@ const App = () => {
   }
 
   if (!session) {
+    if (adminToken) {
+      return (
+        <main
+          className="mx-auto min-h-dvh w-full overflow-x-clip px-4 py-6 sm:px-6 lg:px-8 2xl:px-10"
+          style={mainStyle}
+        >
+          <Suspense fallback={<TabLoadingFallback />}>
+            <AdminDashboardPage
+              token={adminToken}
+              onLogout={() => {
+                setAdminToken('');
+                setShowAdminLogin(false);
+                try {
+                  window.localStorage.removeItem(ADMIN_TOKEN_KEY);
+                } catch {
+                  // ignore storage failures
+                }
+              }}
+            />
+          </Suspense>
+        </main>
+      );
+    }
+
     return (
       <main
         className="mx-auto flex min-h-dvh w-full items-center justify-center overflow-x-clip px-4 py-6 sm:px-6 lg:px-8 2xl:px-10"
         style={mainStyle}
       >
-        <OTPLoginForm onLogin={login} />
+        {showAdminLogin ? (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <AdminLoginPage
+              onSuccess={(token) => {
+                setAdminToken(token);
+                setShowAdminLogin(false);
+                try {
+                  window.localStorage.setItem(ADMIN_TOKEN_KEY, token);
+                } catch {
+                  // ignore storage failures
+                }
+              }}
+              onBack={() => setShowAdminLogin(false)}
+            />
+          </Suspense>
+        ) : (
+          <OTPLoginForm onLogin={login} onOpenAdmin={() => setShowAdminLogin(true)} />
+        )}
       </main>
     );
   }
@@ -386,6 +442,7 @@ const App = () => {
         onClose={() => setIsMobileNavOpen(false)}
         userName={profile.name}
         userEmail={session.identifier}
+        userPhone={profile.phoneNumber}
         onLogout={logout}
       />
       <div
@@ -403,6 +460,7 @@ const App = () => {
             onToggleCollapsed={toggleSidebarCollapsed}
             userName={profile.name}
             userEmail={session.identifier}
+            userPhone={profile.phoneNumber}
             onLogout={logout}
           />
         </div>

@@ -31,6 +31,7 @@ export const SidebarNav = ({
   onToggleCollapsed,
   userName,
   userEmail,
+  userPhone,
   onLogout,
 }: {
   activeTab: AppTab;
@@ -39,6 +40,7 @@ export const SidebarNav = ({
   onToggleCollapsed: () => void;
   userName?: string;
   userEmail?: string;
+  userPhone?: string;
   onLogout?: () => void;
 }) => (
   <aside
@@ -60,7 +62,7 @@ export const SidebarNav = ({
       </button>
     </div>
 
-    {(userName || userEmail) && !collapsed ? (
+    {(userName || userEmail || userPhone) && !collapsed ? (
       <div className="mt-4 rounded-[26px] border border-white/40 bg-white/60 px-4 py-3 shadow-inner dark:border-orange-400/10 dark:bg-white/5">
         {userName ? (
           <p className="truncate font-display text-lg text-black dark:text-zinc-50">{userName}</p>
@@ -68,16 +70,17 @@ export const SidebarNav = ({
         {userEmail ? (
           <p className="muted-text mt-1 truncate text-xs uppercase tracking-[0.22em]">{userEmail}</p>
         ) : null}
+        {userPhone ? <p className="muted-text mt-1 truncate text-xs">{userPhone}</p> : null}
       </div>
     ) : null}
 
-    {(userName || userEmail) && collapsed ? (
+    {(userName || userEmail || userPhone) && collapsed ? (
       <div className="mt-4 flex justify-center">
         <div
           className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/40 bg-white/60 font-display text-lg text-black shadow-inner dark:border-orange-400/10 dark:bg-white/5 dark:text-orange-50"
-          title={userName || userEmail}
+          title={userName || userEmail || userPhone}
         >
-          {(userName || userEmail || 'O').slice(0, 1).toUpperCase()}
+          {(userName || userEmail || userPhone || 'O').slice(0, 1).toUpperCase()}
         </div>
       </div>
     ) : null}

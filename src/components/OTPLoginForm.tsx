@@ -9,9 +9,10 @@ import { classNames } from '../lib/utils';
 
 interface OTPLoginFormProps {
   onLogin: (session: UserSession) => Promise<void>;
+  onOpenAdmin?: () => void;
 }
 
-export const OTPLoginForm = ({ onLogin }: OTPLoginFormProps) => {
+export const OTPLoginForm = ({ onLogin, onOpenAdmin }: OTPLoginFormProps) => {
   const [identifier, setIdentifier] = useState('');
   const [otp, setOtp] = useState('');
   const [status, setStatus] = useState('Enter your email address to receive an OTP.');
@@ -176,6 +177,16 @@ export const OTPLoginForm = ({ onLogin }: OTPLoginFormProps) => {
       >
         {status}
       </p>
+
+      {onOpenAdmin ? (
+        <button
+          type="button"
+          onClick={onOpenAdmin}
+          className="mt-4 w-full rounded-2xl border border-blue-200 bg-white/70 px-4 py-3 text-sm font-semibold text-black transition hover:bg-blue-100 dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-100 dark:hover:bg-orange-500/20"
+        >
+          Admin Login
+        </button>
+      ) : null}
     </CardShell>
   );
 };

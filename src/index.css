@@ -66,7 +66,7 @@ body::before {
     radial-gradient(circle at 1px 1px, rgba(37, 99, 235, 0.18) 1px, transparent 0);
   background-size: 140px 140px, 220px 220px;
   background-position: 0 0, 80px 120px;
-  animation: particle-drift 22s linear infinite;
+  animation: none;
 }
 
 html.dark body::before {
@@ -459,6 +459,36 @@ html.dark ::placeholder {
   }
 }
 
+.gym-sheet-backdrop {
+  background: rgba(0, 0, 0, 0.62);
+  animation: gym-sheet-backdrop-in 220ms ease-out both;
+}
+
+.gym-sheet {
+  transform-origin: top center;
+  animation: gym-sheet-drop-in 280ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
+}
+
+@keyframes gym-sheet-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gym-sheet-drop-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -22px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
 .celebrate-confetti {
   pointer-events: none;
   background:
@@ -475,12 +505,12 @@ html.dark ::placeholder {
 }
 
 .page-enter {
-  animation: rise-in 0.55s ease-out both;
+  animation: rise-in 0.28s ease-out both;
   animation-delay: var(--enter-delay, var(--enter-base, 0ms));
 }
 
 .fly-enter {
-  animation: fly-in-settle 0.88s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: fly-in-settle 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   animation-delay: var(--enter-delay, var(--enter-base, 0ms));
   will-change: transform, opacity;
 }
@@ -562,16 +592,16 @@ html.dark.intro-minimal body {
 
 .panel-hover {
   transition:
-    transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    border-color 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    background-color 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    filter 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    transform 140ms ease-out,
+    box-shadow 140ms ease-out,
+    border-color 140ms ease-out,
+    background-color 140ms ease-out,
+    filter 140ms ease-out;
   will-change: transform;
 }
 
 .panel-hover:active {
-  transform: translate3d(0, -1px, 4px) scale(0.997);
+  transform: translate3d(0, -1px, 0) scale(0.998);
 }
 
 .hero-glow {
@@ -594,7 +624,7 @@ html.dark.intro-minimal body {
   height: 160px;
   width: 160px;
   background: radial-gradient(circle, rgba(249, 115, 22, 0.22), transparent 65%);
-  animation: soft-float 7s ease-in-out infinite;
+  animation: none;
 }
 
 .hero-glow::after {
@@ -603,7 +633,7 @@ html.dark.intro-minimal body {
   height: 180px;
   width: 180px;
   background: radial-gradient(circle, rgba(14, 165, 233, 0.16), transparent 68%);
-  animation: soft-float 9s ease-in-out infinite reverse;
+  animation: none;
 }
 
 @keyframes particle-drift {
@@ -672,7 +702,7 @@ html.dark.intro-minimal body {
 .wave-emoji {
   display: inline-block;
   transform-origin: 70% 70%;
-  animation: wave-hand 2.7s ease-in-out infinite;
+  animation: none;
 }
 
 .floaty {
@@ -684,7 +714,7 @@ html.dark.intro-minimal body {
 }
 
 .flame-flicker {
-  animation: flame-flicker 1.8s ease-in-out infinite;
+  animation: none;
 }
 
 .check-pop {
@@ -755,7 +785,7 @@ html.dark.intro-minimal body {
     linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent),
     radial-gradient(circle at center, rgba(255, 255, 255, 0.28), transparent 48%);
   transform: translateX(-55%);
-  animation: sheen-sweep 2.8s ease-in-out infinite;
+  animation: none;
 }
 
 @keyframes sheen-sweep {

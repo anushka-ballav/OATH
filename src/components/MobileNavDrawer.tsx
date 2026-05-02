@@ -22,10 +22,11 @@ interface MobileNavDrawerProps {
   onClose: () => void;
   userName?: string;
   userEmail?: string;
+  userPhone?: string;
   onLogout?: () => void;
 }
 
-export const MobileNavDrawer = ({ open, activeTab, onChange, onClose, userName, userEmail, onLogout }: MobileNavDrawerProps) => {
+export const MobileNavDrawer = ({ open, activeTab, onChange, onClose, userName, userEmail, userPhone, onLogout }: MobileNavDrawerProps) => {
   const { markEasterEggFound } = useApp();
   const [avatarTapState, setAvatarTapState] = useState<{ count: number; lastAt: number }>({ count: 0, lastAt: 0 });
 
@@ -40,7 +41,7 @@ export const MobileNavDrawer = ({ open, activeTab, onChange, onClose, userName, 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, open]);
 
-  const avatarLetter = useMemo(() => (userName || userEmail || 'O').slice(0, 1).toUpperCase(), [userEmail, userName]);
+  const avatarLetter = useMemo(() => (userName || userEmail || userPhone || 'O').slice(0, 1).toUpperCase(), [userEmail, userName, userPhone]);
 
   return (
     <div
@@ -83,7 +84,7 @@ export const MobileNavDrawer = ({ open, activeTab, onChange, onClose, userName, 
           </button>
         </div>
 
-        {(userName || userEmail) ? (
+        {(userName || userEmail || userPhone) ? (
           <div className="mt-5 px-5">
             <div className="flex items-center gap-3 rounded-[26px] border border-white/40 bg-white/60 px-4 py-3 shadow-inner dark:border-orange-400/10 dark:bg-white/5">
               <button
@@ -107,6 +108,7 @@ export const MobileNavDrawer = ({ open, activeTab, onChange, onClose, userName, 
               <div className="min-w-0">
                 {userName ? <p className="truncate font-display text-lg text-black dark:text-zinc-50">{userName}</p> : null}
                 {userEmail ? <p className="muted-text mt-1 truncate text-xs uppercase tracking-[0.22em]">{userEmail}</p> : null}
+                {userPhone ? <p className="muted-text mt-1 truncate text-xs">{userPhone}</p> : null}
               </div>
             </div>
           </div>

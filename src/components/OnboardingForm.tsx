@@ -25,6 +25,13 @@ const sanitizeDecimalInput = (value: string) => {
   return `${normalizedWhole || '0'}.${fraction}`;
 };
 
+const sanitizePhoneInput = (value: string) =>
+  String(value || '')
+    .replace(/[^\d+\s()-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trimStart()
+    .slice(0, 24);
+
 const parseNumberInput = (value: string, fallback: number) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -34,6 +41,7 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     name: '',
+    phoneNumber: '',
     gender: readPreferredGender(),
     age: '21',
     height: '170',
@@ -57,6 +65,7 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
       const dailyAvailableHours = Math.min(12, Math.max(1, dailyStudyHours + dailyWorkoutMinutes / 60));
       await onSubmit({
         ...form,
+        phoneNumber: sanitizePhoneInput(form.phoneNumber),
         age,
         height,
         weight,
@@ -108,6 +117,18 @@ export const OnboardingForm = ({ onSubmit }: OnboardingFormProps) => {
               </option>
             ))}
           </select>
+        </label>
+
+        <label className="sm:col-span-2">
+          <span className="mb-2 block text-sm font-medium">Phone number (optional)</span>
+          <input
+            type="tel"
+            inputMode="tel"
+            value={form.phoneNumber}
+            onChange={(event) => setForm((prev) => ({ ...prev, phoneNumber: sanitizePhoneInput(event.target.value) }))}
+            placeholder="+91 98xxxxxx10"
+            className="w-full rounded-2xl border border-black/10 bg-white/80 px-4 py-3 outline-none focus:border-clay dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-50"
+          />
         </label>
 
         <label>

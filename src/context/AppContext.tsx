@@ -23,6 +23,7 @@ import { achievementMeta, normalizeAchievementIds, type AchievementId } from '..
 import { computeUserScore } from '../lib/score';
 import { randomId } from '../lib/utils';
 import { defaultNotifications, processScheduledNotifications, sendLocalNotification } from '../services/notifications';
+import { registerBackgroundPush, unregisterBackgroundPush } from '../services/pushNotifications';
 import { isFirebaseConfigured } from '../services/firebase';
 import { fetchBmiHistory as apiFetchBmiHistory, recordBmi as apiRecordBmi } from '../services/bmi';
 import {
@@ -37,6 +38,7 @@ import {
   syncProfileToServer,
 } from '../services/serverSync';
 import { generateWorkoutPlanWithGroq } from '../services/workoutPlan';
+import { fetchGymPlan, generateGymPlan, markGymWorkoutCompleted } from '../services/gym';
 import {
   clearCloudData,
   fetchUserSnapshot,
@@ -58,6 +60,7 @@ import {
   LeaderboardEntry,
   NotificationItem,
   TaskItem,
+  WorkoutPlan,
   UserProfile,
   UserSession,
 } from '../types';
@@ -83,6 +86,10 @@ interface AppContextValue extends AppState {
   clearLastEasterEggFound(): void;
   lastAchievementUnlocked: { id: AchievementId; title: string; subtitle: string; unlockedAt: string } | null;
   clearLastAchievementUnlocked(): void;
+  setFoodRecognitionModel(model: 'groq' | 'custom'): Promise<void>;
+  toggleGymMode(enabled: boolean): Promise<void>;
+  setupGymMode(equipment: string[], otherEquipment?: string): Promise<void>;
+  markGymPlanDayCompleted(day: string, completed?: boolean): Promise<void>;
   login(session: UserSession): Promise<void>;
   logout(): void;
   completeOnboarding(payload: Omit<UserProfile, 'userId' | 'dailyTargets'>): Promise<void>;
@@ -331,8 +338,68 @@ const sanitizeWorkoutMinutes = (value: unknown, fallback = 45) => {
   return Math.min(180, Math.max(15, Math.round(parsed)));
 };
 
+const normalizePhoneNumber = (value: unknown) =>
+  String(value || '')
+    .replace(/[^\d+\s()-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 24);
+
 const deriveDailyAvailableHours = (studyHours: number, workoutMinutes: number) =>
   Math.min(12, Math.max(1, studyHours + workoutMinutes / 60));
+
+const WEEKDAY_BY_INDEX = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
+
+const getCurrentWeekday = (date = new Date()) => WEEKDAY_BY_INDEX[date.getDay()];
+
+const sumTaskMinutes = (checklist: Array<{ label: string }>, fallbackMinutes: number) => {
+  const parsedMinutes = checklist
+    .map((task) => parseMinutesFromWorkoutTaskLabel(task.label))
+    .filter((minutes): minutes is number => minutes !== null);
+  if (parsedMinutes.length !== checklist.length) return fallbackMinutes;
+  return parsedMinutes.reduce((sum, minutes) => sum + minutes, 0);
+};
+
+const buildDailyWorkoutPlanFromGymPlan = ({
+  gymPlan,
+  fallback,
+  workoutMinutes,
+}: {
+  gymPlan: NonNullable<UserProfile['gymPlan']>;
+  fallback: WorkoutPlan;
+  workoutMinutes: number;
+}): WorkoutPlan => {
+  const today = getCurrentWeekday();
+  const dayPlan = gymPlan.weeklySplit.find((item) => item.day === today) ?? gymPlan.weeklySplit[0];
+
+  if (!dayPlan) {
+    return fallback;
+  }
+
+  const checklist = Array.isArray(dayPlan.tasks) && dayPlan.tasks.length ? dayPlan.tasks : fallback.dailyChecklist;
+  const minutesTotal = sumTaskMinutes(checklist, workoutMinutes);
+  const estimatedCaloriesBurned = Math.max(60, Math.round(minutesTotal * 6.2));
+
+  return {
+    title: dayPlan.isRestDay ? `Gym ${dayPlan.day}: ${dayPlan.focus}` : `Gym ${dayPlan.day} ${dayPlan.focus} session`,
+    summary: dayPlan.isRestDay
+      ? `Today is ${dayPlan.focus}. Keep activity light, mobility high, and recover for the next heavy day.`
+      : `Use about ${minutesTotal} minutes for ${dayPlan.focus.toLowerCase()} training. Complete every task to stay consistent.`,
+    dailyChecklist: checklist,
+    estimatedCaloriesBurned,
+    recoveryTip: dayPlan.isRestDay
+      ? 'Hydrate, stretch, and keep sleep quality high so tomorrow session feels strong.'
+      : `For ${dayPlan.focus.toLowerCase()} day, prioritize form first and stop 1-2 reps before failure.`,
+  };
+};
 
 const normalizeProfile = (profile: UserProfile | null): UserProfile | null => {
   if (!profile) return null;
@@ -356,19 +423,56 @@ const normalizeProfile = (profile: UserProfile | null): UserProfile | null => {
       generatedTargets.workoutMinutes,
     );
 
+  const normalizedBaseWorkoutPlan =
+    profile.gymBaseWorkoutPlan &&
+    Array.isArray(profile.gymBaseWorkoutPlan.dailyChecklist) &&
+    profile.gymBaseWorkoutPlan.dailyChecklist.length
+      ? {
+          ...generatedTargets.workoutPlan,
+          ...profile.gymBaseWorkoutPlan,
+          dailyChecklist: profile.gymBaseWorkoutPlan.dailyChecklist,
+        }
+      : generatedTargets.workoutPlan;
+
+  const normalizedGymPlan =
+    profile.gymPlan && Array.isArray(profile.gymPlan.weeklySplit) && profile.gymPlan.weeklySplit.length
+      ? profile.gymPlan
+      : null;
+
+  const dailyTargets = hasPersistedChecklist
+    ? {
+        ...generatedTargets,
+        workoutPlan: {
+          ...generatedTargets.workoutPlan,
+          ...persistedWorkoutPlan,
+          dailyChecklist: persistedWorkoutPlan!.dailyChecklist,
+        },
+      }
+    : generatedTargets;
+
+  const nextWorkoutPlan =
+    profile.gymModeEnabled && normalizedGymPlan
+      ? buildDailyWorkoutPlanFromGymPlan({
+          gymPlan: normalizedGymPlan,
+          fallback: normalizedBaseWorkoutPlan,
+          workoutMinutes: dailyTargets.workoutMinutes,
+        })
+      : dailyTargets.workoutPlan;
+
   return {
     ...profile,
+    phoneNumber: normalizePhoneNumber(profile.phoneNumber),
+    foodRecognitionModel: profile.foodRecognitionModel === 'custom' ? 'custom' : 'groq',
     gender: normalizedGender,
-    dailyTargets: hasPersistedChecklist
-      ? {
-          ...generatedTargets,
-          workoutPlan: {
-            ...generatedTargets.workoutPlan,
-            ...persistedWorkoutPlan,
-            dailyChecklist: persistedWorkoutPlan!.dailyChecklist,
-          },
-        }
-      : generatedTargets,
+    gymModeEnabled: Boolean(profile.gymModeEnabled),
+    gymEquipment: Array.isArray(profile.gymEquipment) ? profile.gymEquipment : [],
+    gymOtherEquipment: typeof profile.gymOtherEquipment === 'string' ? profile.gymOtherEquipment : '',
+    gymPlan: normalizedGymPlan,
+    gymBaseWorkoutPlan: normalizedBaseWorkoutPlan,
+    dailyTargets: {
+      ...dailyTargets,
+      workoutPlan: nextWorkoutPlan,
+    },
   };
 };
 
@@ -610,6 +714,14 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
   useEffect(() => {
     const boot = async () => {
+      if ('storage' in navigator && typeof navigator.storage.persist === 'function') {
+        try {
+          await navigator.storage.persist();
+        } catch {
+          // Ignore persistence API failures.
+        }
+      }
+
       const globalState = loadGlobalState();
       const userState = globalState?.session?.userId ? loadUserState(globalState.session.userId) : null;
       const localState = normalizeState({
@@ -702,6 +814,14 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     state.achievementsUnlocked,
     state.darkMode,
   ]);
+
+  useEffect(() => {
+    if (!isReady || !state.session) return;
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+
+    void registerBackgroundPush(state.session).catch(() => undefined);
+  }, [isReady, state.session]);
 
   useEffect(() => {
     if (!isReady || !state.session?.userId || !isFirebaseConfigured) {
@@ -1014,6 +1134,63 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   }, [isReady, state.session]);
 
   useEffect(() => {
+    if (!isReady || !state.session || !state.profile?.gymModeEnabled) return;
+    if (state.profile.gymPlan) return;
+
+    let cancelled = false;
+
+    const hydrateGymPlan = async () => {
+      try {
+        const payload = await fetchGymPlan({
+          userId: state.session!.userId,
+          identifier: state.session!.identifier,
+        });
+        if (cancelled || !payload.plan) return;
+
+        const fallbackWorkoutPlan = state.profile?.gymBaseWorkoutPlan ?? state.profile?.dailyTargets.workoutPlan;
+        if (!fallbackWorkoutPlan) return;
+
+        const nextWorkoutPlan = payload.todayWorkoutPlan
+          ? {
+              ...payload.todayWorkoutPlan,
+              dailyChecklist: payload.todayWorkoutPlan.dailyChecklist || [],
+            }
+          : buildDailyWorkoutPlanFromGymPlan({
+              gymPlan: payload.plan,
+              fallback: fallbackWorkoutPlan,
+              workoutMinutes: state.profile!.dailyTargets.workoutMinutes,
+            });
+
+        setState((prev) => {
+          if (!prev.profile) return prev;
+          const nextProfile: UserProfile = {
+            ...prev.profile,
+            gymPlan: payload.plan,
+            gymBaseWorkoutPlan: prev.profile.gymBaseWorkoutPlan ?? prev.profile.dailyTargets.workoutPlan,
+            dailyTargets: {
+              ...prev.profile.dailyTargets,
+              workoutPlan: nextWorkoutPlan,
+            },
+          };
+
+          return {
+            ...prev,
+            profile: nextProfile,
+          };
+        });
+      } catch {
+        // Keep existing profile when gym plan is unavailable.
+      }
+    };
+
+    void hydrateGymPlan();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isReady, state.profile, state.session]);
+
+  useEffect(() => {
     if (!isReady || !state.session || !state.profile) return;
     void syncProfileToServer(state.session, state.profile, state.notifications);
   }, [isReady, state.notifications, state.profile, state.session]);
@@ -1153,6 +1330,196 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     clearLastEasterEggFound,
     lastAchievementUnlocked,
     clearLastAchievementUnlocked,
+    async setFoodRecognitionModel(model) {
+      if (!state.profile || !state.session) return;
+      const nextModel = model === 'custom' ? 'custom' : 'groq';
+      if (state.profile.foodRecognitionModel === nextModel) return;
+
+      const nextProfile: UserProfile = {
+        ...state.profile,
+        foodRecognitionModel: nextModel,
+      };
+
+      setState((prev) => ({
+        ...prev,
+        profile: nextProfile,
+      }));
+
+      await Promise.allSettled([
+        syncProfile(nextProfile),
+        syncProfileToServer(state.session, nextProfile, state.notifications),
+      ]);
+    },
+    async toggleGymMode(enabled) {
+      if (!state.profile) return;
+      if (!state.session) return;
+
+      const selectedEquipment = Array.from(
+        new Set(
+          (Array.isArray(state.profile.gymEquipment) ? state.profile.gymEquipment : [])
+            .map((item) => String(item || '').trim())
+            .filter(Boolean),
+        ),
+      );
+
+      if (enabled && !selectedEquipment.length) {
+        throw new Error('Please add your gym equipment first.');
+      }
+
+      const baseWorkoutPlan = state.profile.gymBaseWorkoutPlan ?? state.profile.dailyTargets.workoutPlan;
+      let nextGymPlan = state.profile.gymPlan ?? null;
+      let todayWorkoutPlanFromApi: WorkoutPlan | null = null;
+
+      if (enabled && !nextGymPlan) {
+        const generated = await generateGymPlan({
+          userId: state.session.userId,
+          identifier: state.session.identifier,
+          equipment: selectedEquipment,
+          otherEquipment: state.profile.gymOtherEquipment?.trim() || '',
+        });
+        nextGymPlan = generated.plan;
+        todayWorkoutPlanFromApi = generated.todayWorkoutPlan
+          ? {
+              ...generated.todayWorkoutPlan,
+              dailyChecklist: generated.todayWorkoutPlan.dailyChecklist || [],
+            }
+          : null;
+      }
+
+      const workoutPlan =
+        enabled && nextGymPlan
+          ? todayWorkoutPlanFromApi ??
+            buildDailyWorkoutPlanFromGymPlan({
+              gymPlan: nextGymPlan,
+              fallback: baseWorkoutPlan,
+              workoutMinutes: state.profile.dailyTargets.workoutMinutes,
+            })
+          : baseWorkoutPlan;
+
+      const nextProfile: UserProfile = {
+        ...state.profile,
+        gymModeEnabled: enabled,
+        gymEquipment: selectedEquipment,
+        gymPlan: nextGymPlan,
+        gymBaseWorkoutPlan: baseWorkoutPlan,
+        dailyTargets: {
+          ...state.profile.dailyTargets,
+          workoutPlan,
+        },
+      };
+
+      setState((prev) => ({
+        ...prev,
+        profile: nextProfile,
+        logs: prev.logs.map((log) =>
+          log.date === currentDayKey
+            ? withCaloriesBreakdown({
+                ...log,
+                workoutPlanCaloriesBurned: getWorkoutPlanCaloriesForLog(nextProfile, log.completedWorkoutTasks),
+              })
+            : log,
+        ),
+      }));
+
+      await Promise.allSettled([
+        syncProfile(nextProfile),
+        syncProfileToServer(state.session, nextProfile, state.notifications),
+      ]);
+    },
+    async setupGymMode(equipment, otherEquipment) {
+      if (!state.profile || !state.session) return;
+
+      const selectedEquipment = Array.from(
+        new Set(
+          (Array.isArray(equipment) ? equipment : [])
+            .map((item) => String(item || '').trim())
+            .filter(Boolean),
+        ),
+      );
+      if (!selectedEquipment.length) {
+        throw new Error('Select at least one equipment option.');
+      }
+
+      const generated = await generateGymPlan({
+        userId: state.session.userId,
+        identifier: state.session.identifier,
+        equipment: selectedEquipment,
+        otherEquipment: otherEquipment?.trim() || '',
+      });
+
+      const baseWorkoutPlan = state.profile.gymBaseWorkoutPlan ?? state.profile.dailyTargets.workoutPlan;
+      const todayWorkoutPlan = generated.todayWorkoutPlan
+        ? {
+            ...generated.todayWorkoutPlan,
+            dailyChecklist: generated.todayWorkoutPlan.dailyChecklist || [],
+          }
+        : buildDailyWorkoutPlanFromGymPlan({
+            gymPlan: generated.plan,
+            fallback: baseWorkoutPlan,
+            workoutMinutes: state.profile.dailyTargets.workoutMinutes,
+          });
+
+      const nextProfile: UserProfile = {
+        ...state.profile,
+        gymModeEnabled: true,
+        gymEquipment: selectedEquipment,
+        gymOtherEquipment: otherEquipment?.trim() || '',
+        gymPlan: generated.plan,
+        gymBaseWorkoutPlan: baseWorkoutPlan,
+        dailyTargets: {
+          ...state.profile.dailyTargets,
+          workoutPlan: todayWorkoutPlan,
+        },
+      };
+
+      setState((prev) => ({
+        ...prev,
+        profile: nextProfile,
+        logs: prev.logs.map((log) =>
+          log.date === currentDayKey
+            ? withCaloriesBreakdown({
+                ...log,
+                workoutPlanCaloriesBurned: getWorkoutPlanCaloriesForLog(nextProfile, log.completedWorkoutTasks),
+              })
+            : log,
+        ),
+      }));
+
+      await Promise.allSettled([
+        syncProfile(nextProfile),
+        syncProfileToServer(state.session, nextProfile, state.notifications),
+      ]);
+    },
+    async markGymPlanDayCompleted(day, completed = true) {
+      if (!state.profile?.gymPlan || !state.session) return;
+      const selectedDay = String(day || '').trim();
+      if (!selectedDay) return;
+
+      const { progress } = await markGymWorkoutCompleted({
+        userId: state.session.userId,
+        identifier: state.session.identifier,
+        day: selectedDay,
+        completed,
+      });
+
+      const nextProfile: UserProfile = {
+        ...state.profile,
+        gymPlan: {
+          ...state.profile.gymPlan,
+          progress,
+        },
+      };
+
+      setState((prev) => ({
+        ...prev,
+        profile: nextProfile,
+      }));
+
+      await Promise.allSettled([
+        syncProfile(nextProfile),
+        syncProfileToServer(state.session, nextProfile, state.notifications),
+      ]);
+    },
     async login(session) {
       const savedUserState = loadUserState(session.userId);
       const localState = normalizeState({
@@ -1169,6 +1536,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       setState(nextState);
     },
     logout() {
+      const previousSession = state.session;
       try {
         if (state.session?.userId) {
           window.localStorage.removeItem(`${FIRST_LAUNCH_KEY_PREFIX}${state.session.userId}`);
@@ -1184,6 +1552,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         notifications: prev.notifications,
         leaderboard: prev.leaderboard,
       }));
+
+      if (previousSession) {
+        void unregisterBackgroundPush(previousSession).catch(() => undefined);
+      }
     },
     async completeOnboarding(payload) {
       if (!state.session) return;
@@ -1210,6 +1582,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       const profile: UserProfile = {
         ...payload,
         userId: state.session.userId,
+        foodRecognitionModel: payload.foodRecognitionModel === 'custom' ? 'custom' : 'groq',
         dailyAvailableHours,
         dailyStudyHours,
         dailyWorkoutMinutes,

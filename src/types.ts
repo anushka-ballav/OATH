@@ -1,5 +1,6 @@
 export type GoalType = 'Lose Fat' | 'Gain Muscle' | 'Maintain';
 export type GenderType = 'Female' | 'Male' | 'Other';
+export type FoodRecognitionModel = 'groq' | 'custom';
 
 export type AppTab = 'home' | 'progress' | 'correlation' | 'leaderboard' | 'companion' | 'scan' | 'profile';
 
@@ -35,9 +36,45 @@ export interface WorkoutTask {
   label: string;
 }
 
+export type GymEquipmentOption =
+  | 'Dumbbells'
+  | 'Barbell'
+  | 'Bench Press'
+  | 'Cable Machine'
+  | 'Resistance Bands'
+  | 'Treadmill'
+  | 'Pull-up Bar'
+  | 'Leg Press Machine'
+  | 'Other';
+
+export interface GymPlanDay {
+  day: string;
+  focus: string;
+  isRestDay?: boolean;
+  tasks: WorkoutTask[];
+}
+
+export interface GymProgress {
+  completedDates: string[];
+  totalCompletedSessions: number;
+  streak: number;
+  lastCompletedDate?: string | null;
+  lastCompletedDay?: string | null;
+}
+
+export interface GymPlan {
+  generatedAt: string;
+  source: 'ai' | 'rules';
+  equipment: string[];
+  otherEquipment?: string;
+  weeklySplit: GymPlanDay[];
+  progress?: GymProgress;
+}
+
 export interface UserProfile {
   userId: string;
   name: string;
+  phoneNumber?: string;
   gender: GenderType;
   age: number;
   height: number;
@@ -47,6 +84,12 @@ export interface UserProfile {
   dailyStudyHours?: number;
   dailyWorkoutMinutes?: number;
   dailyTargets: DailyTargets;
+  gymModeEnabled?: boolean;
+  gymEquipment?: string[];
+  gymOtherEquipment?: string;
+  gymPlan?: GymPlan | null;
+  gymBaseWorkoutPlan?: WorkoutPlan | null;
+  foodRecognitionModel?: FoodRecognitionModel;
 }
 
 export interface UserSession {

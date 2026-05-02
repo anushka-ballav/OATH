@@ -1,11 +1,15 @@
 import cors from 'cors';
-import { randomUUID } from 'crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
 import fs from 'fs';
+import { execFile as execFileCallback } from 'child_process';
 import cron from 'node-cron';
 import nodemailer from 'nodemailer';
+import webpush from 'web-push';
+import os from 'os';
 import path from 'path';
+import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -13,6 +17,12 @@ const __dirname = path.dirname(__filename);
 const envPath = path.resolve(__dirname, '..', '.env');
 const distPath = path.resolve(__dirname, '..', 'dist');
 const distIndexPath = path.join(distPath, 'index.html');
+const foodDatasetDir = path.resolve(__dirname, '..', 'food_dataset');
+const localFoodModelPath = path.join(foodDatasetDir, 'food_model.h5');
+const localFoodClassesPath = path.join(foodDatasetDir, 'classes.json');
+const localFoodNutritionPath = path.join(foodDatasetDir, 'nutrition.csv');
+const localFoodPredictScriptPath = path.join(foodDatasetDir, 'predict.py');
+const execFile = promisify(execFileCallback);
 
 dotenv.config({ path: envPath });
 
@@ -116,6 +126,246 @@ const getGroqModel = (kind = 'general') =>
   process.env[kind === 'vision' ? 'GROQ_VISION_MODEL' : 'GROQ_MODEL'] ||
   process.env.GROQ_MODEL ||
   (kind === 'vision' ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile');
+const getAdminId = () => String(process.env.ADMIN_ID || 'admin').trim();
+const getAdminPassword = () => String(process.env.ADMIN_PASSWORD || 'admin123').trim();
+const getAdminJwtSecret = () => String(process.env.ADMIN_JWT_SECRET || 'oath-admin-secret').trim();
+const getWebPushPublicKey = () => String(process.env.WEB_PUSH_PUBLIC_KEY || '').trim();
+const getWebPushPrivateKey = () => String(process.env.WEB_PUSH_PRIVATE_KEY || '').trim();
+const getWebPushSubject = () => String(process.env.WEB_PUSH_SUBJECT || 'mailto:support@oath.app').trim();
+const isWebPushConfigured = () => Boolean(getWebPushPublicKey() && getWebPushPrivateKey());
+
+const ensureWebPushConfigured = () => {
+  if (!isWebPushConfigured()) return false;
+  try {
+    webpush.setVapidDetails(getWebPushSubject(), getWebPushPublicKey(), getWebPushPrivateKey());
+    return true;
+  } catch (error) {
+    console.error('Failed to configure web push', error);
+    return false;
+  }
+};
+const secureTextMatch = (first, second) => {
+  const left = Buffer.from(String(first || ''), 'utf8');
+  const right = Buffer.from(String(second || ''), 'utf8');
+
+  if (!left.length || left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+};
+
+const toBase64Url = (input) =>
+  Buffer.from(input, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+
+const fromBase64Url = (input) => {
+  const normalized = String(input || '')
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  const padded = normalized + '==='.slice((normalized.length + 3) % 4);
+  return Buffer.from(padded, 'base64').toString('utf8');
+};
+
+const signJwt = (payload, expiresInSeconds = 8 * 60 * 60) => {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const body = {
+    ...payload,
+    iat: nowSeconds,
+    exp: nowSeconds + Math.max(60, Math.round(expiresInSeconds)),
+  };
+  const headerEncoded = toBase64Url(JSON.stringify(header));
+  const payloadEncoded = toBase64Url(JSON.stringify(body));
+  const content = `${headerEncoded}.${payloadEncoded}`;
+  const signature = createHmac('sha256', getAdminJwtSecret())
+    .update(content)
+    .digest('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+
+  return `${content}.${signature}`;
+};
+
+const verifyJwt = (token) => {
+  const [headerEncoded, payloadEncoded, signature] = String(token || '').split('.');
+  if (!headerEncoded || !payloadEncoded || !signature) return null;
+
+  const content = `${headerEncoded}.${payloadEncoded}`;
+  const expectedSignature = createHmac('sha256', getAdminJwtSecret())
+    .update(content)
+    .digest('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+  if (signature !== expectedSignature) return null;
+
+  const payloadRaw = fromBase64Url(payloadEncoded);
+  const payload = safeJsonParse(payloadRaw);
+  if (!payload || typeof payload !== 'object') return null;
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (typeof payload.exp !== 'number' || payload.exp < nowSeconds) return null;
+
+  return payload;
+};
+
+const WEEK_SPLIT_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const toDayName = (date = new Date()) => WEEK_SPLIT_ORDER[(date.getDay() + 6) % 7];
+
+const mkTask = (id, label) => ({
+  id: String(id || '').trim().slice(0, 64),
+  label: String(label || '').trim().slice(0, 120),
+});
+
+const buildFallbackGymPlan = ({ equipment, otherEquipment = '', workoutMinutes = 60 }) => {
+  const has = (name) => equipment.includes(name);
+  const hasMachines = has('Cable Machine') || has('Leg Press Machine');
+  const hasBarbell = has('Barbell');
+  const hasDumbbells = has('Dumbbells');
+  const hasTreadmill = has('Treadmill');
+  const hasBands = has('Resistance Bands');
+
+  const split = [
+    {
+      day: 'Monday',
+      focus: 'Legs',
+      isRestDay: false,
+      tasks: hasMachines
+        ? [
+            mkTask('legpress', '18 minutes leg press and hamstring curls'),
+            mkTask('split-squat', '12 minutes split squats and calf raises'),
+            mkTask('finish-legs', '10 minutes treadmill incline walk'),
+          ]
+        : [
+            mkTask('goblet-squat', '18 minutes goblet squats and reverse lunges'),
+            mkTask('glute-bridge', '12 minutes glute bridges and calf raises'),
+            mkTask('legs-finish', '10 minutes brisk walk or marching'),
+          ],
+    },
+    {
+      day: 'Tuesday',
+      focus: 'Back',
+      isRestDay: false,
+      tasks: hasBarbell
+        ? [
+            mkTask('row', '16 minutes barbell rows and deadlift pattern'),
+            mkTask('pull', '12 minutes pull-up progressions or lat pulls'),
+            mkTask('rear', '12 minutes rear delt and core support work'),
+          ]
+        : [
+            mkTask('db-row', '16 minutes dumbbell rows and band rows'),
+            mkTask('pull-assist', '12 minutes pull-up holds or band pulldowns'),
+            mkTask('core-back', '12 minutes back extension and core holds'),
+          ],
+    },
+    {
+      day: 'Wednesday',
+      focus: 'Chest',
+      isRestDay: false,
+      tasks: [
+        mkTask('press', has('Bench Press') ? '16 minutes bench press and incline press' : '16 minutes floor press and push-up variations'),
+        mkTask('fly', has('Cable Machine') ? '12 minutes cable fly and press-downs' : '12 minutes dumbbell fly and close push-ups'),
+        mkTask('chest-finish', '12 minutes controlled tempo chest burnout'),
+      ],
+    },
+    {
+      day: 'Thursday',
+      focus: hasTreadmill ? 'Cardio + Mobility' : 'Rest + Mobility',
+      isRestDay: true,
+      tasks: hasTreadmill
+        ? [
+            mkTask('cardio', '20 minutes treadmill intervals'),
+            mkTask('mobility', '12 minutes full-body mobility and breathing'),
+          ]
+        : [
+            mkTask('walk', '20 minutes walk or light cycle'),
+            mkTask('mobility', '12 minutes stretching and mobility'),
+          ],
+    },
+    {
+      day: 'Friday',
+      focus: 'Shoulders',
+      isRestDay: false,
+      tasks: [
+        mkTask('overhead', hasBarbell ? '16 minutes overhead press and strict press' : '16 minutes dumbbell shoulder press'),
+        mkTask('lateral', '12 minutes lateral raises and rear delts'),
+        mkTask('stability', hasBands ? '12 minutes resistance band shoulder stability' : '12 minutes shoulder stability and core'),
+      ],
+    },
+    {
+      day: 'Saturday',
+      focus: 'Arms',
+      isRestDay: false,
+      tasks: [
+        mkTask('biceps', hasDumbbells ? '14 minutes dumbbell curls and hammer curls' : '14 minutes bodyweight curl variations'),
+        mkTask('triceps', '14 minutes triceps extensions and close-grip presses'),
+        mkTask('arms-finish', '10 minutes arm finisher and forearm hold'),
+      ],
+    },
+    {
+      day: 'Sunday',
+      focus: 'Rest',
+      isRestDay: true,
+      tasks: [
+        mkTask('recovery', '20 minutes recovery walk and breathing work'),
+      ],
+    },
+  ];
+
+  const normalizedSplit = split.map((dayPlan) => {
+    const totalMinutes = dayPlan.tasks
+      .map((task) => {
+        const match = task.label.match(/^(\d+)\s+minutes/i);
+        return match ? Number(match[1]) : 0;
+      })
+      .reduce((sum, value) => sum + value, 0);
+
+    if (!totalMinutes) return dayPlan;
+    const scale = Math.max(0.5, Math.min(1.4, workoutMinutes / totalMinutes));
+    const tasks = dayPlan.tasks.map((task, index) => {
+      const match = task.label.match(/^(\d+)\s+minutes\s+(.+)$/i);
+      if (!match) return task;
+      const minutes = Math.max(6, Math.round(Number(match[1]) * scale));
+      return mkTask(`${task.id}-${index + 1}`, `${minutes} minutes ${match[2]}`);
+    });
+
+    return {
+      ...dayPlan,
+      tasks,
+    };
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    source: 'rules',
+    equipment,
+    otherEquipment,
+    weeklySplit: normalizedSplit,
+  };
+};
+
+const buildTodayWorkoutFromGymPlan = (gymPlan, workoutMinutes = 60) => {
+  const dayName = toDayName();
+  const dayPlan = gymPlan?.weeklySplit?.find((item) => item.day === dayName) || gymPlan?.weeklySplit?.[0];
+  if (!dayPlan) return null;
+
+  const checklist = Array.isArray(dayPlan.tasks) ? dayPlan.tasks : [];
+  const estimatedCaloriesBurned = Math.max(80, Math.round(Math.max(20, workoutMinutes) * 6.4));
+
+  return {
+    title: dayPlan.isRestDay ? `Gym ${dayPlan.day}: ${dayPlan.focus}` : `Gym ${dayPlan.day} ${dayPlan.focus}`,
+    summary: dayPlan.isRestDay
+      ? `Today is ${dayPlan.focus}. Keep movement light and recover well.`
+      : `Use around ${workoutMinutes} minutes and complete all listed gym tasks.`,
+    dailyChecklist: checklist,
+    estimatedCaloriesBurned,
+    recoveryTip: dayPlan.isRestDay
+      ? 'Use active recovery, hydration, and sleep to maximize next session performance.'
+      : `Train ${dayPlan.focus.toLowerCase()} with controlled form and progressive overload.`,
+  };
+};
 
 app.use(
   cors({
@@ -148,8 +398,11 @@ const DEFAULT_STORE = {
   dailyLogs: {},
   bmi: {},
   reminders: {},
+  pushSubscriptions: {},
   friendships: {},
   leaderboardInvites: {},
+  gymPlans: {},
+  gymProgress: {},
 };
 
 const ensureDataDir = () => {
@@ -175,11 +428,15 @@ const normalizeStore = (store) => ({
   dailyLogs: store?.dailyLogs && typeof store.dailyLogs === 'object' ? store.dailyLogs : {},
   bmi: store?.bmi && typeof store.bmi === 'object' ? store.bmi : {},
   reminders: store?.reminders && typeof store.reminders === 'object' ? store.reminders : {},
+  pushSubscriptions:
+    store?.pushSubscriptions && typeof store.pushSubscriptions === 'object' ? store.pushSubscriptions : {},
   friendships: store?.friendships && typeof store.friendships === 'object' ? store.friendships : {},
   leaderboardInvites:
     store?.leaderboardInvites && typeof store.leaderboardInvites === 'object'
       ? store.leaderboardInvites
       : {},
+  gymPlans: store?.gymPlans && typeof store.gymPlans === 'object' ? store.gymPlans : {},
+  gymProgress: store?.gymProgress && typeof store.gymProgress === 'object' ? store.gymProgress : {},
 });
 
 const readStore = async () => {
@@ -274,6 +531,75 @@ const hasReachedReminderTime = (time, timeZone = getReminderTimeZone(), date = n
   const [hours, minutes] = normalizeReminderTime(time, '20:00').split(':').map(Number);
   const zoned = getZonedClock(timeZone, date);
   return zoned.hour * 60 + zoned.minute >= hours * 60 + minutes;
+};
+
+const normalizePushSubscription = (value) => {
+  const endpoint = String(value?.endpoint || '').trim();
+  const keys = value?.keys && typeof value.keys === 'object' ? value.keys : {};
+  const p256dh = String(keys?.p256dh || '').trim();
+  const auth = String(keys?.auth || '').trim();
+
+  if (!endpoint || !p256dh || !auth) return null;
+
+  return {
+    endpoint,
+    expirationTime: value?.expirationTime ?? null,
+    keys: {
+      p256dh,
+      auth,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+const getUserPushSubscriptions = (store, userId) =>
+  Array.isArray(store.pushSubscriptions?.[userId]) ? store.pushSubscriptions[userId] : [];
+
+const buildPushReminderPayload = ({ reminderId, pendingCount = 0, goalStatus }) => {
+  const safePending = Math.max(0, Number(pendingCount) || 0);
+  const hasGoals = Boolean(goalStatus?.hasMissing);
+
+  switch (reminderId) {
+    case 'wake':
+      return {
+        title: '☀️ Wake-up check',
+        body: 'Log your wake-up time and kickstart your streak.',
+        kind: 'wake',
+      };
+    case 'study':
+      return {
+        title: '📚 Study focus reminder',
+        body: 'Your study target is still pending. Open OATH and finish your block.',
+        kind: 'study',
+      };
+    case 'workout':
+      return {
+        title: '🏋️ Workout reminder',
+        body: 'Your workout plan is waiting. Complete your tasks to close today strong.',
+        kind: 'workout',
+      };
+    case 'water':
+      return {
+        title: '💧 Hydration reminder',
+        body: 'Take a water break and stay on track with your hydration goal.',
+        kind: 'water',
+      };
+    case 'tasks':
+      return {
+        title: '🕗 Unfinished task reminder',
+        body:
+          safePending > 0 || hasGoals
+            ? `${safePending} task${safePending === 1 ? '' : 's'} pending${hasGoals ? ' + goals remaining' : ''}.`
+            : 'You still have unfinished goals for today.',
+        kind: 'tasks',
+      };
+    default:
+      return {
+        title: 'OATH reminder',
+        body: 'Open OATH to continue your daily plan.',
+        kind: 'generic',
+      };
+  }
 };
 
 const buildOtpEmailText = (code) => `OATH login code: ${code}. It expires in 10 minutes.`;
@@ -1482,6 +1808,38 @@ const mergeUserDataIntoCanonical = (store, fromUserId, toUserId) => {
     delete store.reminders[fromUserId];
   }
 
+  const fromPushSubscriptions = Array.isArray(store.pushSubscriptions?.[fromUserId])
+    ? store.pushSubscriptions[fromUserId]
+    : [];
+  const toPushSubscriptions = Array.isArray(store.pushSubscriptions?.[toUserId])
+    ? store.pushSubscriptions[toUserId]
+    : [];
+  if (fromPushSubscriptions.length || toPushSubscriptions.length) {
+    const mergedByEndpoint = new Map();
+    for (const subscription of [...toPushSubscriptions, ...fromPushSubscriptions]) {
+      const endpoint = String(subscription?.endpoint || '').trim();
+      if (!endpoint) continue;
+      const current = mergedByEndpoint.get(endpoint);
+      if (!current || toTimestamp(subscription?.updatedAt) >= toTimestamp(current?.updatedAt)) {
+        mergedByEndpoint.set(endpoint, subscription);
+      }
+    }
+    store.pushSubscriptions[toUserId] = Array.from(mergedByEndpoint.values());
+    delete store.pushSubscriptions[fromUserId];
+  }
+
+  const fromGymPlan = store.gymPlans?.[fromUserId] ?? null;
+  const toGymPlan = store.gymPlans?.[toUserId] ?? null;
+  if (fromGymPlan || toGymPlan) {
+    const normalizedGymPlan = normalizeGymPlan(fromGymPlan, toGymPlan || null);
+    if (normalizedGymPlan) {
+      store.gymPlans[toUserId] = normalizedGymPlan;
+      store.gymProgress[toUserId] = normalizedGymPlan.progress;
+    }
+    delete store.gymPlans[fromUserId];
+    delete store.gymProgress[fromUserId];
+  }
+
   const fromFriends = store.friendships?.[fromUserId];
   if (fromFriends && typeof fromFriends === 'object') {
     store.friendships[toUserId] =
@@ -1564,6 +1922,66 @@ const verifyOtpHandler = async (request, response) => {
 
 app.post('/api/auth/verify-otp', verifyOtpHandler);
 app.post('/verify-otp', verifyOtpHandler);
+
+app.get('/api/notifications/push/public-key', (_request, response) => {
+  refreshEnv();
+  const enabled = ensureWebPushConfigured();
+  return response.json({
+    enabled,
+    publicKey: enabled ? getWebPushPublicKey() : '',
+    message: enabled ? 'Web Push is available.' : 'WEB_PUSH_PUBLIC_KEY / WEB_PUSH_PRIVATE_KEY not configured.',
+  });
+});
+
+app.post('/api/notifications/push/subscribe', async (request, response) => {
+  const providedUserId = String(request.body?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.body?.identifier);
+  const normalizedSubscription = normalizePushSubscription(request.body?.subscription);
+
+  if (!normalizedSubscription) {
+    return response.status(400).json({ message: 'Invalid push subscription payload.' });
+  }
+
+  if (!providedUserId && !identifier) {
+    return response.status(400).json({ message: 'User identity is required.' });
+  }
+
+  await updateStore((store) => {
+    const userId = resolveCanonicalUserId(store, providedUserId, identifier);
+    if (!userId) {
+      throw new Error('Unable to resolve user for push subscription.');
+    }
+
+    store.pushSubscriptions[userId] = getUserPushSubscriptions(store, userId);
+    const existing = store.pushSubscriptions[userId].filter((entry) => entry.endpoint !== normalizedSubscription.endpoint);
+    store.pushSubscriptions[userId] = [...existing, normalizedSubscription].slice(-8);
+  });
+
+  return response.json({ ok: true });
+});
+
+app.post('/api/notifications/push/unsubscribe', async (request, response) => {
+  const providedUserId = String(request.body?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.body?.identifier);
+  const endpoint = String(request.body?.endpoint || '').trim();
+
+  if (!providedUserId && !identifier) {
+    return response.status(400).json({ message: 'User identity is required.' });
+  }
+
+  await updateStore((store) => {
+    const userId = resolveCanonicalUserId(store, providedUserId, identifier);
+    if (!userId) return;
+    const current = getUserPushSubscriptions(store, userId);
+    if (!endpoint) {
+      store.pushSubscriptions[userId] = [];
+      return;
+    }
+    store.pushSubscriptions[userId] = current.filter((entry) => entry.endpoint !== endpoint);
+  });
+
+  return response.json({ ok: true });
+});
 
 const upsertUserInStore = (store, { userId, email, name }) => {
   if (!userId) return;
@@ -1659,10 +2077,308 @@ const normalizeDailyTargets = (dailyTargets) => {
     calories,
     workoutPlan: {
       title: typeof workoutPlan.title === 'string' ? workoutPlan.title.slice(0, 120) : 'Daily workout',
+      summary:
+        typeof workoutPlan.summary === 'string' && workoutPlan.summary.trim()
+          ? workoutPlan.summary.trim().slice(0, 220)
+          : '',
       dailyChecklist: normalizeWorkoutChecklist(workoutPlan),
       estimatedCaloriesBurned: Math.max(0, Math.round(parseNumber(workoutPlan.estimatedCaloriesBurned, 0))),
+      recoveryTip:
+        typeof workoutPlan.recoveryTip === 'string' && workoutPlan.recoveryTip.trim()
+          ? workoutPlan.recoveryTip.trim().slice(0, 220)
+          : '',
     },
   };
+};
+
+const normalizeFoodRecognitionModel = (value, fallback = 'groq') =>
+  String(value || '')
+    .trim()
+    .toLowerCase() === 'custom'
+    ? 'custom'
+    : fallback === 'custom'
+      ? 'custom'
+      : 'groq';
+
+const GYM_EQUIPMENT_OPTIONS = new Set([
+  'Dumbbells',
+  'Barbell',
+  'Bench Press',
+  'Cable Machine',
+  'Resistance Bands',
+  'Treadmill',
+  'Pull-up Bar',
+  'Leg Press Machine',
+  'Other',
+]);
+
+const GYM_DAY_OPTIONS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const GYM_DAY_INDEX = GYM_DAY_OPTIONS.reduce((acc, day, index) => {
+  acc[day.toLowerCase()] = index;
+  return acc;
+}, {});
+
+const normalizeGymEquipment = (equipment) =>
+  Array.from(
+    new Set(
+      (Array.isArray(equipment) ? equipment : [])
+        .map((item) => String(item || '').trim())
+        .filter((item) => item && GYM_EQUIPMENT_OPTIONS.has(item)),
+    ),
+  );
+
+const normalizeGymDayLabel = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  const matched = GYM_DAY_OPTIONS.find((day) => day.toLowerCase() === raw.toLowerCase());
+  return matched || '';
+};
+
+const normalizeGymTaskList = (tasks) => {
+  const rawTasks = Array.isArray(tasks) ? tasks : [];
+
+  return rawTasks
+    .map((task, index) => {
+      if (typeof task === 'string') {
+        const label = task.trim().slice(0, 120);
+        if (!label) return null;
+        return {
+          id: toChecklistItemId(label, index),
+          label,
+        };
+      }
+
+      const label = typeof task?.label === 'string' ? task.label.trim().slice(0, 120) : '';
+      if (!label) return null;
+      return {
+        id:
+          typeof task?.id === 'string' && task.id.trim()
+            ? task.id.trim().slice(0, 64)
+            : toChecklistItemId(label, index),
+        label,
+      };
+    })
+    .filter(Boolean);
+};
+
+const normalizeGymProgress = (progress) => {
+  const completedDates = Array.from(
+    new Set(
+      (Array.isArray(progress?.completedDates) ? progress.completedDates : [])
+        .map((dateKey) => normalizeDateKey(dateKey))
+        .filter(Boolean),
+    ),
+  ).sort((first, second) => first.localeCompare(second));
+
+  const completedSet = new Set(completedDates);
+  let streak = 0;
+  let cursor = toDateKey();
+
+  while (completedSet.has(cursor)) {
+    streak += 1;
+    cursor = shiftDateKey(cursor, -1);
+  }
+
+  const lastCompletedDate = completedDates[completedDates.length - 1] || null;
+  const lastCompletedDay = lastCompletedDate ? toDayName(new Date(`${lastCompletedDate}T00:00:00`)) : null;
+
+  return {
+    completedDates,
+    totalCompletedSessions: completedDates.length,
+    streak,
+    lastCompletedDate,
+    lastCompletedDay,
+  };
+};
+
+const normalizeGymWeeklySplit = (weeklySplit) =>
+  (Array.isArray(weeklySplit) ? weeklySplit : [])
+    .map((dayPlan) => {
+      const day = normalizeGymDayLabel(dayPlan?.day);
+      const focus = typeof dayPlan?.focus === 'string' ? dayPlan.focus.trim().slice(0, 60) : '';
+      const tasks = normalizeGymTaskList(dayPlan?.tasks);
+      const isRestDay = Boolean(dayPlan?.isRestDay);
+
+      if (!day || !focus || !tasks.length) return null;
+
+      return {
+        day,
+        focus,
+        isRestDay,
+        tasks,
+      };
+    })
+    .filter(Boolean)
+    .sort(
+      (first, second) =>
+        (GYM_DAY_INDEX[first.day.toLowerCase()] ?? 99) - (GYM_DAY_INDEX[second.day.toLowerCase()] ?? 99),
+    );
+
+const normalizeGymPlan = (gymPlan, fallback = {}) => {
+  const safePlan = gymPlan && typeof gymPlan === 'object' ? gymPlan : {};
+  const fallbackPlan = fallback && typeof fallback === 'object' ? fallback : {};
+  const weeklySplit = normalizeGymWeeklySplit(safePlan.weeklySplit || fallbackPlan.weeklySplit);
+  if (!weeklySplit.length) return null;
+
+  const source = String(safePlan.source || fallbackPlan.source || 'rules').toLowerCase() === 'ai' ? 'ai' : 'rules';
+  const equipment = normalizeGymEquipment(safePlan.equipment || fallbackPlan.equipment);
+  const otherEquipmentRaw =
+    typeof safePlan.otherEquipment === 'string'
+      ? safePlan.otherEquipment
+      : typeof fallbackPlan.otherEquipment === 'string'
+        ? fallbackPlan.otherEquipment
+        : '';
+  const otherEquipment = otherEquipmentRaw.trim().slice(0, 120);
+  const progress = normalizeGymProgress(safePlan.progress || fallbackPlan.progress);
+
+  return {
+    generatedAt:
+      typeof safePlan.generatedAt === 'string' && safePlan.generatedAt
+        ? safePlan.generatedAt
+        : new Date().toISOString(),
+    source,
+    equipment,
+    otherEquipment,
+    weeklySplit,
+    progress,
+  };
+};
+
+const normalizeGymPlanForStorage = (store, userId, gymPlan) => {
+  const existingPlan = store.gymPlans?.[userId] || store.profiles?.[userId]?.gymPlan || null;
+  const normalized = normalizeGymPlan(gymPlan, existingPlan);
+  if (!normalized) return null;
+
+  const existingProgress = store.gymProgress?.[userId];
+  const mergedProgress = normalizeGymProgress({
+    ...(normalized.progress || {}),
+    ...(existingProgress || {}),
+  });
+
+  return {
+    ...normalized,
+    progress: mergedProgress,
+  };
+};
+
+const normalizeWorkoutPlanPayload = (workoutPlan, fallback = null) => {
+  const safePlan = workoutPlan && typeof workoutPlan === 'object' ? workoutPlan : {};
+  const fallbackPlan = fallback && typeof fallback === 'object' ? fallback : {};
+  const title =
+    typeof safePlan.title === 'string' && safePlan.title.trim()
+      ? safePlan.title.trim().slice(0, 120)
+      : typeof fallbackPlan.title === 'string' && fallbackPlan.title.trim()
+        ? fallbackPlan.title.trim().slice(0, 120)
+        : 'Daily workout';
+  const summary =
+    typeof safePlan.summary === 'string' && safePlan.summary.trim()
+      ? safePlan.summary.trim().slice(0, 220)
+      : typeof fallbackPlan.summary === 'string' && fallbackPlan.summary.trim()
+        ? fallbackPlan.summary.trim().slice(0, 220)
+        : '';
+  const recoveryTip =
+    typeof safePlan.recoveryTip === 'string' && safePlan.recoveryTip.trim()
+      ? safePlan.recoveryTip.trim().slice(0, 220)
+      : typeof fallbackPlan.recoveryTip === 'string' && fallbackPlan.recoveryTip.trim()
+        ? fallbackPlan.recoveryTip.trim().slice(0, 220)
+        : '';
+
+  return {
+    title,
+    summary,
+    dailyChecklist: normalizeGymTaskList(safePlan.dailyChecklist || fallbackPlan.dailyChecklist),
+    estimatedCaloriesBurned: Math.max(
+      0,
+      Math.round(parseNumber(safePlan.estimatedCaloriesBurned, fallbackPlan.estimatedCaloriesBurned || 0)),
+    ),
+    recoveryTip,
+  };
+};
+
+const resolveDateForGymDay = (day) => {
+  const normalizedDay = normalizeGymDayLabel(day);
+  if (!normalizedDay) return '';
+
+  const today = new Date();
+  const todayIndex = (today.getDay() + 6) % 7;
+  const targetIndex = GYM_DAY_INDEX[normalizedDay.toLowerCase()];
+  if (typeof targetIndex !== 'number') return '';
+
+  let delta = targetIndex - todayIndex;
+  if (delta > 0) delta -= 7;
+
+  const target = new Date(today);
+  target.setDate(today.getDate() + delta);
+  return toDateKey(target);
+};
+
+const buildGymPlanWithGroq = async ({ equipment, otherEquipment = '', workoutMinutes = 60 }) => {
+  refreshEnv();
+  if (!isGroqConfigured()) return null;
+
+  const weeklyTemplate = [
+    'Monday: Legs',
+    'Tuesday: Back',
+    'Wednesday: Chest',
+    'Thursday: Rest/Cardio',
+    'Friday: Shoulders',
+    'Saturday: Arms',
+    'Sunday: Rest',
+  ].join('\n');
+
+  const messages = [
+    {
+      role: 'system',
+      content:
+        'You are a certified gym coach. Return ONLY valid JSON with one key weeklySplit. weeklySplit must be an array of exactly 7 objects with keys: day, focus, isRestDay, tasks. tasks must be 2-4 strings and each task must start with "<minutes> minutes ...". Keep tasks safe and practical.',
+    },
+    {
+      role: 'user',
+      content: [
+        `Daily workout target minutes: ${Math.max(20, Math.round(parseNumber(workoutMinutes, 60)))}`,
+        `Available equipment: ${equipment.join(', ') || 'General equipment'}`,
+        `Other equipment: ${otherEquipment || 'None'}`,
+        'Use this split pattern if possible:',
+        weeklyTemplate,
+      ].join('\n'),
+    },
+  ];
+
+  try {
+    const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify(buildCompanionRequestBody(getGroqModel('general'), messages, 620)),
+    });
+
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text();
+      throw new Error(errorText || 'Groq gym plan request failed.');
+    }
+
+    const data = await aiResponse.json();
+    const text = extractGroqChatText(data) || extractGroqResponseText(data);
+    if (!text) throw new Error('Groq gym plan returned no readable text.');
+
+    const parsed = extractJsonObject(text);
+    const weeklySplit = normalizeGymWeeklySplit(parsed?.weeklySplit);
+    if (!weeklySplit.length) throw new Error('AI gym plan did not include a valid weekly split.');
+
+    return {
+      generatedAt: new Date().toISOString(),
+      source: 'ai',
+      equipment,
+      otherEquipment,
+      weeklySplit,
+    };
+  } catch (error) {
+    console.error('Groq gym plan request failed', error);
+    return null;
+  }
 };
 
 const pruneDailyLogs = (store, userId, maxDays = 45) => {
@@ -1682,6 +2398,11 @@ const syncProfileHandler = async (request, response) => {
   const providedUserId = String(request.body?.userId || '').trim();
   const identifier = normalizeIdentifier(request.body?.identifier);
   const name = String(request.body?.name || '').trim();
+  const phoneNumber = String(request.body?.phoneNumber || '')
+    .replace(/[^\d+\s()-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 24);
   const gender = normalizeGender(request.body?.gender);
   const age = Math.max(0, Math.round(parseNumber(request.body?.age, 0)));
   const height = Math.max(0, Math.round(parseNumber(request.body?.height, 0)));
@@ -1692,6 +2413,17 @@ const syncProfileHandler = async (request, response) => {
   const dailyWorkoutMinutes = Math.max(0, Math.round(parseNumber(request.body?.dailyWorkoutMinutes, 0)));
   const dailyTargets = normalizeDailyTargets(request.body?.dailyTargets);
   const notifications = normalizeNotificationSettings(request.body?.notifications);
+  const foodRecognitionModel = normalizeFoodRecognitionModel(request.body?.foodRecognitionModel);
+  const hasGymModeFlag = typeof request.body?.gymModeEnabled === 'boolean';
+  const gymModeEnabled = hasGymModeFlag ? Boolean(request.body?.gymModeEnabled) : null;
+  const gymEquipment = normalizeGymEquipment(request.body?.gymEquipment);
+  const gymOtherEquipment =
+    typeof request.body?.gymOtherEquipment === 'string' ? request.body.gymOtherEquipment.trim().slice(0, 120) : '';
+  const gymPlanInput = normalizeGymPlan(request.body?.gymPlan);
+  const gymBaseWorkoutPlan = normalizeWorkoutPlanPayload(
+    request.body?.gymBaseWorkoutPlan,
+    dailyTargets?.workoutPlan || null,
+  );
 
   if (!identifier || !identifier.includes('@')) return response.status(400).json({ message: 'identifier is required.' });
   if (!dailyTargets) return response.status(400).json({ message: 'dailyTargets is required.' });
@@ -1706,10 +2438,20 @@ const syncProfileHandler = async (request, response) => {
       mergeUserDataIntoCanonical(store, providedUserId, userId);
     }
 
+    const previousProfile =
+      store.profiles?.[userId] && typeof store.profiles[userId] === 'object' ? store.profiles[userId] : null;
+    const nextGymPlan = normalizeGymPlanForStorage(store, userId, gymPlanInput || previousProfile?.gymPlan || null);
+
+    if (nextGymPlan) {
+      store.gymPlans[userId] = nextGymPlan;
+      store.gymProgress[userId] = nextGymPlan.progress;
+    }
+
     store.profiles[userId] = {
       userId,
       identifier,
       name: name || store.users?.[userId]?.name || null,
+      phoneNumber: phoneNumber || previousProfile?.phoneNumber || '',
       gender,
       age,
       height,
@@ -1719,6 +2461,12 @@ const syncProfileHandler = async (request, response) => {
       dailyStudyHours,
       dailyWorkoutMinutes,
       dailyTargets,
+      gymModeEnabled: hasGymModeFlag ? gymModeEnabled : Boolean(previousProfile?.gymModeEnabled),
+      gymEquipment: gymEquipment.length ? gymEquipment : Array.isArray(previousProfile?.gymEquipment) ? previousProfile.gymEquipment : [],
+      gymOtherEquipment: gymOtherEquipment || previousProfile?.gymOtherEquipment || '',
+      gymPlan: nextGymPlan || previousProfile?.gymPlan || null,
+      gymBaseWorkoutPlan: gymBaseWorkoutPlan || previousProfile?.gymBaseWorkoutPlan || null,
+      foodRecognitionModel: normalizeFoodRecognitionModel(foodRecognitionModel, previousProfile?.foodRecognitionModel || 'groq'),
       updatedAt: now,
     };
 
@@ -1842,8 +2590,20 @@ const getUserStateHandler = async (request, response) => {
     store = await readStore();
   }
 
-  const profile =
+  const rawProfile =
     store.profiles?.[userId] && typeof store.profiles[userId] === 'object' ? store.profiles[userId] : null;
+  const persistedGymPlan = normalizeGymPlan(store.gymPlans?.[userId] || rawProfile?.gymPlan || null);
+  const profile = rawProfile
+    ? {
+        ...rawProfile,
+        gymModeEnabled: Boolean(rawProfile.gymModeEnabled),
+        gymEquipment: normalizeGymEquipment(rawProfile.gymEquipment),
+        gymOtherEquipment: typeof rawProfile.gymOtherEquipment === 'string' ? rawProfile.gymOtherEquipment : '',
+        gymPlan: persistedGymPlan,
+        gymBaseWorkoutPlan: normalizeWorkoutPlanPayload(rawProfile.gymBaseWorkoutPlan, rawProfile.dailyTargets?.workoutPlan),
+        foodRecognitionModel: normalizeFoodRecognitionModel(rawProfile.foodRecognitionModel, 'groq'),
+      }
+    : null;
   const logBucket =
     store.dailyLogs?.[userId] && typeof store.dailyLogs[userId] === 'object' ? store.dailyLogs[userId] : {};
   const logs = Object.keys(logBucket)
@@ -1870,6 +2630,293 @@ app.post('/api/sync/profile', syncProfileHandler);
 app.post('/sync/profile', syncProfileHandler);
 app.post('/api/sync/daily-log', syncDailyLogHandler);
 app.post('/sync/daily-log', syncDailyLogHandler);
+
+const resolveUserStoreContext = async ({ providedUserId, identifier }) => {
+  const initialStore = await readStore();
+  const userId = resolveCanonicalUserId(initialStore, providedUserId, identifier);
+  if (!userId) {
+    return { store: initialStore, userId: '' };
+  }
+
+  if (providedUserId && providedUserId !== userId) {
+    await updateStore((store) => {
+      mergeUserDataIntoCanonical(store, providedUserId, userId);
+    });
+    return {
+      store: await readStore(),
+      userId,
+    };
+  }
+
+  return {
+    store: initialStore,
+    userId,
+  };
+};
+
+// Gym mode endpoints: generate plan, fetch plan, and track completion streak.
+app.post('/api/gym/generate-plan', async (request, response) => {
+  const providedUserId = String(request.body?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.body?.identifier);
+  const equipment = normalizeGymEquipment(request.body?.equipment);
+  const otherEquipment =
+    typeof request.body?.otherEquipment === 'string' ? request.body.otherEquipment.trim().slice(0, 120) : '';
+
+  if (!providedUserId && !identifier) {
+    return response.status(400).json({ message: 'userId or identifier is required.' });
+  }
+  if (!equipment.length) {
+    return response.status(400).json({ message: 'At least one equipment option is required.' });
+  }
+
+  const { store, userId } = await resolveUserStoreContext({ providedUserId, identifier });
+  if (!userId) {
+    return response.status(404).json({ message: 'Account not found.' });
+  }
+
+  const profile = store.profiles?.[userId] ?? null;
+  const workoutMinutes = Math.max(
+    20,
+    Math.round(parseNumber(profile?.dailyWorkoutMinutes, profile?.dailyTargets?.workoutMinutes || 60)),
+  );
+  const aiPlan = await buildGymPlanWithGroq({
+    equipment,
+    otherEquipment,
+    workoutMinutes,
+  });
+  const fallbackPlan = buildFallbackGymPlan({
+    equipment,
+    otherEquipment,
+    workoutMinutes,
+  });
+  const normalizedPlan = normalizeGymPlan(aiPlan || fallbackPlan);
+
+  if (!normalizedPlan) {
+    return response.status(500).json({ message: 'Unable to generate gym plan.' });
+  }
+
+  const existingProgress = store.gymProgress?.[userId] || store.gymPlans?.[userId]?.progress || null;
+  const nextPlan = {
+    ...normalizedPlan,
+    progress: normalizeGymProgress(existingProgress || normalizedPlan.progress),
+  };
+  const todayWorkoutPlan = buildTodayWorkoutFromGymPlan(nextPlan, workoutMinutes);
+
+  await updateStore((mutableStore) => {
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(mutableStore, providedUserId, userId);
+    }
+
+    mutableStore.gymPlans[userId] = nextPlan;
+    mutableStore.gymProgress[userId] = nextPlan.progress;
+
+    const previousProfile =
+      mutableStore.profiles?.[userId] && typeof mutableStore.profiles[userId] === 'object'
+        ? mutableStore.profiles[userId]
+        : null;
+
+    if (previousProfile) {
+      mutableStore.profiles[userId] = {
+        ...previousProfile,
+        gymModeEnabled: true,
+        gymEquipment: equipment,
+        gymOtherEquipment: otherEquipment,
+        gymPlan: nextPlan,
+        gymBaseWorkoutPlan: normalizeWorkoutPlanPayload(
+          previousProfile.gymBaseWorkoutPlan,
+          previousProfile.dailyTargets?.workoutPlan || null,
+        ),
+        dailyTargets: previousProfile.dailyTargets
+          ? {
+              ...previousProfile.dailyTargets,
+              workoutPlan: todayWorkoutPlan || previousProfile.dailyTargets.workoutPlan,
+            }
+          : previousProfile.dailyTargets,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    upsertUserInStore(mutableStore, {
+      userId,
+      email: identifier || mutableStore.users?.[userId]?.email || previousProfile?.identifier || '',
+      name: previousProfile?.name || mutableStore.users?.[userId]?.name || '',
+    });
+  });
+
+  return response.json({
+    ok: true,
+    userId,
+    source: nextPlan.source,
+    plan: nextPlan,
+    todayWorkoutPlan,
+  });
+});
+
+app.get('/api/gym/plan', async (request, response) => {
+  const providedUserId = String(request.query?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.query?.identifier);
+
+  if (!providedUserId && !identifier) {
+    return response.status(400).json({ message: 'userId or identifier is required.' });
+  }
+
+  const { store, userId } = await resolveUserStoreContext({ providedUserId, identifier });
+  if (!userId) {
+    return response.status(404).json({ message: 'Account not found.' });
+  }
+
+  const profile = store.profiles?.[userId] ?? null;
+  const plan = normalizeGymPlan(store.gymPlans?.[userId] || profile?.gymPlan || null);
+
+  if (!plan) {
+    return response.json({
+      userId,
+      plan: null,
+      todayWorkoutPlan: null,
+    });
+  }
+
+  const workoutMinutes = Math.max(
+    20,
+    Math.round(parseNumber(profile?.dailyWorkoutMinutes, profile?.dailyTargets?.workoutMinutes || 60)),
+  );
+  const todayWorkoutPlan = buildTodayWorkoutFromGymPlan(plan, workoutMinutes);
+
+  return response.json({
+    userId,
+    plan,
+    todayWorkoutPlan,
+  });
+});
+
+app.post('/api/gym/progress', async (request, response) => {
+  const providedUserId = String(request.body?.userId || '').trim();
+  const identifier = normalizeIdentifier(request.body?.identifier);
+  const day = normalizeGymDayLabel(request.body?.day);
+  const completed = request.body?.completed !== false;
+
+  if (!providedUserId && !identifier) {
+    return response.status(400).json({ message: 'userId or identifier is required.' });
+  }
+  if (!day) {
+    return response.status(400).json({ message: 'Valid day is required.' });
+  }
+
+  const { store, userId } = await resolveUserStoreContext({ providedUserId, identifier });
+  if (!userId) {
+    return response.status(404).json({ message: 'Account not found.' });
+  }
+
+  const profile = store.profiles?.[userId] ?? null;
+  const plan = normalizeGymPlan(store.gymPlans?.[userId] || profile?.gymPlan || null);
+  if (!plan) {
+    return response.status(404).json({ message: 'Gym plan not found. Generate a plan first.' });
+  }
+
+  const completionDate = resolveDateForGymDay(day);
+  if (!completionDate) {
+    return response.status(400).json({ message: 'Unable to resolve completion day.' });
+  }
+
+  const currentProgress = normalizeGymProgress(store.gymProgress?.[userId] || plan.progress || {});
+  const completedSet = new Set(currentProgress.completedDates);
+
+  if (completed) {
+    completedSet.add(completionDate);
+  } else {
+    completedSet.delete(completionDate);
+  }
+
+  const nextProgress = normalizeGymProgress({
+    completedDates: [...completedSet],
+  });
+  const nextPlan = {
+    ...plan,
+    progress: nextProgress,
+  };
+
+  const workoutMinutes = Math.max(
+    20,
+    Math.round(parseNumber(profile?.dailyWorkoutMinutes, profile?.dailyTargets?.workoutMinutes || 60)),
+  );
+  const todayWorkoutPlan = buildTodayWorkoutFromGymPlan(nextPlan, workoutMinutes);
+
+  await updateStore((mutableStore) => {
+    if (providedUserId && providedUserId !== userId) {
+      mergeUserDataIntoCanonical(mutableStore, providedUserId, userId);
+    }
+
+    mutableStore.gymPlans[userId] = nextPlan;
+    mutableStore.gymProgress[userId] = nextProgress;
+
+    if (mutableStore.profiles?.[userId] && typeof mutableStore.profiles[userId] === 'object') {
+      const previousProfile = mutableStore.profiles[userId];
+      mutableStore.profiles[userId] = {
+        ...previousProfile,
+        gymPlan: nextPlan,
+        dailyTargets: previousProfile.gymModeEnabled && previousProfile.dailyTargets
+          ? {
+              ...previousProfile.dailyTargets,
+              workoutPlan: todayWorkoutPlan || previousProfile.dailyTargets.workoutPlan,
+            }
+          : previousProfile.dailyTargets,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+  });
+
+  return response.json({
+    ok: true,
+    userId,
+    progress: nextProgress,
+    plan: nextPlan,
+    todayWorkoutPlan,
+  });
+});
+
+const readBearerToken = (request) => {
+  const authorization = String(request.headers?.authorization || '').trim();
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] ? match[1].trim() : '';
+};
+
+const requireAdminAuth = (request, response, next) => {
+  const token = readBearerToken(request);
+  if (!token) {
+    return response.status(401).json({ message: 'Missing admin token.' });
+  }
+
+  const payload = verifyJwt(token);
+  if (!payload || payload.role !== 'admin') {
+    return response.status(401).json({ message: 'Invalid or expired admin token.' });
+  }
+
+  request.admin = {
+    adminId: payload.adminId || '',
+  };
+  return next();
+};
+
+app.post('/api/admin/login', async (request, response) => {
+  const adminId = String(request.body?.adminId || '').trim();
+  const password = String(request.body?.password || '').trim();
+
+  if (!adminId || !password) {
+    return response.status(400).json({ message: 'Admin ID and password are required.' });
+  }
+
+  const validAdmin = secureTextMatch(adminId, getAdminId()) && secureTextMatch(password, getAdminPassword());
+  if (!validAdmin) {
+    return response.status(401).json({ message: 'Invalid admin credentials.' });
+  }
+
+  const token = signJwt({ role: 'admin', adminId: getAdminId() }, 12 * 60 * 60);
+  return response.json({
+    ok: true,
+    token,
+    expiresInSeconds: 12 * 60 * 60,
+  });
+});
 
 const LEADERBOARD_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const LEADERBOARD_LEVEL_XP = 120;
@@ -2191,6 +3238,197 @@ const buildInvitePreview = (store, request, inviteCode, currentUserId = '') => {
     acceptedByUserId: invite.acceptedByUserId || null,
   };
 };
+
+const computeDisciplineScore = ({ profile, latestLog, tasks, dateKey }) => {
+  if (!profile || !latestLog) {
+    return {
+      total: 0,
+      studyScore: 0,
+      healthScore: 0,
+      taskScore: 0,
+    };
+  }
+
+  const targetStudyMinutes = Math.max(1, Math.round(parseNumber(profile?.dailyTargets?.studyHours, 0) * 60));
+  const studyRatio = Math.max(0, Math.min(1, parseNumber(latestLog?.studyMinutes, 0) / targetStudyMinutes));
+  const studyScore = Math.round(studyRatio * 30);
+
+  const waterTargetMl = Math.max(1, Math.round(parseNumber(profile?.dailyTargets?.waterLiters, 0) * 1000));
+  const waterRatio = Math.max(0, Math.min(1, parseNumber(latestLog?.waterIntakeMl, 0) / waterTargetMl));
+  const workoutTarget = Math.max(1, getWorkoutTargetCount(profile?.dailyTargets));
+  const workoutRatio = Math.max(
+    0,
+    Math.min(1, (Array.isArray(latestLog?.completedWorkoutTasks) ? latestLog.completedWorkoutTasks.length : 0) / workoutTarget),
+  );
+  const healthScore = Math.round((waterRatio * 0.45 + workoutRatio * 0.55) * 30);
+
+  const dueTasks = (Array.isArray(tasks) ? tasks : []).filter((task) => task?.dueDate && task.dueDate <= dateKey);
+  const completedDueTasks = dueTasks.filter((task) => Boolean(task?.completed)).length;
+  const taskRatio = dueTasks.length ? completedDueTasks / dueTasks.length : 0;
+  const taskScore = Math.round(Math.max(0, Math.min(1, taskRatio)) * 40);
+
+  return {
+    total: studyScore + healthScore + taskScore,
+    studyScore,
+    healthScore,
+    taskScore,
+  };
+};
+
+const buildAdminUserSummary = (store, userId) => {
+  const profile = store.profiles?.[userId] ?? null;
+  const user = store.users?.[userId] ?? null;
+  const logsBucket = store.dailyLogs?.[userId] ?? {};
+  const logKeys = getSortedLogKeys(logsBucket);
+  const latestLogKey = logKeys[logKeys.length - 1] || '';
+  const latestLog = latestLogKey ? logsBucket[latestLogKey] : null;
+  const tasks = Array.isArray(store.tasks?.[userId]) ? store.tasks[userId] : [];
+  const bmiHistory = Array.isArray(store.bmi?.[userId]) ? store.bmi[userId] : [];
+  const latestBmi = bmiHistory
+    .slice()
+    .sort((first, second) => toTimestamp(second?.measuredAt) - toTimestamp(first?.measuredAt))[0] || null;
+  const streak = computeCurrentStreak(profile?.dailyTargets, logsBucket);
+  const discipline = computeDisciplineScore({
+    profile,
+    latestLog,
+    tasks,
+    dateKey: toDateKey(),
+  });
+  const gymPlan = normalizeGymPlan(store.gymPlans?.[userId] || profile?.gymPlan || null);
+  const lastActive = getLastSeenForUser(store, userId, logsBucket);
+
+  return {
+    userId,
+    name: profile?.name || user?.name || 'Unnamed User',
+    email: user?.email || profile?.identifier || '',
+    lastActive,
+    streak,
+    bmi: latestBmi?.bmi ?? null,
+    disciplineScore: discipline.total,
+    gymModeEnabled: Boolean(profile?.gymModeEnabled),
+    gymPlan,
+  };
+};
+
+app.get('/api/admin/users', requireAdminAuth, async (_request, response) => {
+  const store = await readStore();
+  const userIds = Array.from(
+    new Set([
+      ...Object.keys(store.users || {}),
+      ...Object.keys(store.profiles || {}),
+      ...Object.keys(store.dailyLogs || {}),
+      ...Object.keys(store.tasks || {}),
+      ...Object.keys(store.bmi || {}),
+      ...Object.keys(store.gymPlans || {}),
+    ]),
+  );
+
+  const users = userIds
+    .map((userId) => buildAdminUserSummary(store, userId))
+    .sort((first, second) => toTimestamp(second.lastActive) - toTimestamp(first.lastActive));
+  const todayKey = toDateKey();
+  const activeUsersToday = users.filter((user) => normalizeDateKey(toDateKey(new Date(user.lastActive || ''))) === todayKey).length;
+  const averageDisciplineScore = users.length
+    ? Math.round(users.reduce((total, user) => total + (user.disciplineScore || 0), 0) / users.length)
+    : 0;
+
+  return response.json({
+    users,
+    summary: {
+      totalUsers: users.length,
+      activeUsersToday,
+      averageDisciplineScore,
+    },
+  });
+});
+
+app.get('/api/admin/user/:userId', requireAdminAuth, async (request, response) => {
+  const rawUserId = String(request.params?.userId || '').trim();
+  if (!rawUserId) return response.status(400).json({ message: 'userId is required.' });
+
+  const store = await readStore();
+  const userId = resolveCanonicalUserId(store, rawUserId, '');
+  const hasUserData = Boolean(
+    store.users?.[userId] ||
+      store.profiles?.[userId] ||
+      store.dailyLogs?.[userId] ||
+      store.tasks?.[userId] ||
+      store.bmi?.[userId] ||
+      store.gymPlans?.[userId],
+  );
+
+  if (!hasUserData) return response.status(404).json({ message: 'User not found.' });
+
+  const logsBucket = store.dailyLogs?.[userId] ?? {};
+  const logs = getSortedLogKeys(logsBucket)
+    .map((key) => logsBucket[key])
+    .filter(Boolean);
+  const tasks = Array.isArray(store.tasks?.[userId]) ? store.tasks[userId] : [];
+  const bmiHistory = Array.isArray(store.bmi?.[userId]) ? store.bmi[userId] : [];
+  const profile = store.profiles?.[userId] && typeof store.profiles[userId] === 'object'
+    ? {
+        ...store.profiles[userId],
+        gymPlan: normalizeGymPlan(store.gymPlans?.[userId] || store.profiles[userId]?.gymPlan || null),
+      }
+    : null;
+
+  return response.json({
+    user: {
+      userId,
+      profile,
+      tasks,
+      logs,
+      bmiHistory,
+      gymPlan: normalizeGymPlan(store.gymPlans?.[userId] || profile?.gymPlan || null),
+    },
+  });
+});
+
+app.delete('/api/admin/user/:userId', requireAdminAuth, async (request, response) => {
+  const rawUserId = String(request.params?.userId || '').trim();
+  if (!rawUserId) return response.status(400).json({ message: 'userId is required.' });
+
+  let removedUserId = '';
+  await updateStore((store) => {
+    const userId = resolveCanonicalUserId(store, rawUserId, '');
+    const hasUserData = Boolean(
+      store.users?.[userId] ||
+        store.profiles?.[userId] ||
+        store.dailyLogs?.[userId] ||
+        store.tasks?.[userId] ||
+        store.bmi?.[userId] ||
+        store.gymPlans?.[userId],
+    );
+    if (!hasUserData) return;
+
+    removedUserId = userId;
+    delete store.users[userId];
+    delete store.profiles[userId];
+    delete store.dailyLogs[userId];
+    delete store.tasks[userId];
+    delete store.bmi[userId];
+    delete store.reminders[userId];
+    delete store.pushSubscriptions[userId];
+    delete store.gymPlans[userId];
+    delete store.gymProgress[userId];
+    delete store.friendships[userId];
+
+    for (const [, bucket] of Object.entries(store.friendships || {})) {
+      if (!bucket || typeof bucket !== 'object') continue;
+      delete bucket[userId];
+    }
+
+    for (const [inviteCode, invite] of Object.entries(store.leaderboardInvites || {})) {
+      if (!invite || typeof invite !== 'object') continue;
+      if (invite.inviterUserId === userId || invite.acceptedByUserId === userId) {
+        delete store.leaderboardInvites[inviteCode];
+      }
+    }
+  });
+
+  if (!removedUserId) return response.status(404).json({ message: 'User not found.' });
+  return response.json({ ok: true, userId: removedUserId });
+});
 
 const listLeaderboardHandler = async (request, response) => {
   const providedUserId = String(request.query?.userId || '').trim();
@@ -2713,6 +3951,18 @@ app.post('/api/reset', async (request, response) => {
     delete store.tasks[userId];
     delete store.bmi[userId];
     delete store.reminders[userId];
+    delete store.pushSubscriptions[userId];
+    delete store.gymPlans[userId];
+    delete store.gymProgress[userId];
+    if (store.profiles?.[userId] && typeof store.profiles[userId] === 'object') {
+      store.profiles[userId] = {
+        ...store.profiles[userId],
+        gymModeEnabled: false,
+        gymEquipment: [],
+        gymOtherEquipment: '',
+        gymPlan: null,
+      };
+    }
   });
 
   if (!userId) return response.status(400).json({ message: 'Unable to resolve account identity.' });
@@ -2942,10 +4192,186 @@ app.post('/api/ai/companion', async (request, response) => {
   }
 });
 
+const readFirstDefined = (obj, keys) => {
+  for (const key of keys) {
+    if (obj && obj[key] !== undefined && obj[key] !== null && String(obj[key]).trim() !== '') {
+      return obj[key];
+    }
+  }
+  return undefined;
+};
+
+const toNumericValue = (value) => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === 'string') {
+    const match = value.match(/-?\d+(\.\d+)?/);
+    if (!match) return 0;
+    const num = Number(match[0]);
+    return Number.isFinite(num) ? num : 0;
+  }
+
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const roundOne = (value) => Math.round(value * 10) / 10;
+
+const normalizeFoodScanPayload = (parsed) => {
+  const safeName = String(
+    readFirstDefined(parsed, ['name', 'label', 'food', 'foodName']) || 'Detected Meal',
+  ).trim();
+  const safeCalories = Math.max(
+    1,
+    Math.round(toNumericValue(readFirstDefined(parsed, ['calories', 'caloriesKcal', 'kcal', 'energyKcal'])) || 250),
+  );
+  const safeProteinG = roundOne(Math.max(0, toNumericValue(readFirstDefined(parsed, ['proteinG', 'protein_g', 'protein']))));
+  const safeCarbsG = roundOne(Math.max(0, toNumericValue(readFirstDefined(parsed, ['carbsG', 'carbs_g', 'carbs']))));
+  const safeFatG = roundOne(Math.max(0, toNumericValue(readFirstDefined(parsed, ['fatG', 'fat_g', 'fat']))));
+  const safeSugarG = roundOne(Math.max(0, toNumericValue(readFirstDefined(parsed, ['sugarG', 'sugar_g', 'sugar']))));
+  const safeFiberG = roundOne(Math.max(0, toNumericValue(readFirstDefined(parsed, ['fiberG', 'fiber_g', 'fiber']))));
+  const safeSodiumMg = Math.round(Math.max(0, toNumericValue(readFirstDefined(parsed, ['sodiumMg', 'sodium_mg', 'sodium']))));
+  const safeConfidence = Math.max(0, Math.min(1, toNumericValue(readFirstDefined(parsed, ['confidence', 'score'])) || 0.7));
+
+  return {
+    name: safeName,
+    calories: safeCalories,
+    proteinG: safeProteinG,
+    carbsG: safeCarbsG,
+    fatG: safeFatG,
+    sugarG: safeSugarG,
+    fiberG: safeFiberG,
+    sodiumMg: safeSodiumMg,
+    confidence: safeConfidence,
+  };
+};
+
+const imageExtensionFromMime = (mimeType) => {
+  const normalized = String(mimeType || '')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'image/jpeg') return 'jpg';
+  if (normalized === 'image/png') return 'png';
+  if (normalized === 'image/webp') return 'webp';
+  if (normalized === 'image/heic') return 'heic';
+  if (normalized === 'image/heif') return 'heif';
+  if (normalized.startsWith('image/')) {
+    return normalized.split('/')[1] || 'jpg';
+  }
+  return 'jpg';
+};
+
+const parseImageDataUrl = (imageDataUrl) => {
+  const match = String(imageDataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/);
+  if (!match) return null;
+  const mimeType = match[1];
+  const base64 = match[2];
+  try {
+    const buffer = Buffer.from(base64, 'base64');
+    if (!buffer.length) return null;
+    return {
+      mimeType,
+      buffer,
+      extension: imageExtensionFromMime(mimeType),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const runLocalFoodPrediction = async ({ imageDataUrl, fileName }) => {
+  const decoded = parseImageDataUrl(imageDataUrl);
+  if (!decoded) {
+    throw new Error('Invalid image payload for local model.');
+  }
+
+  if (
+    !fs.existsSync(localFoodPredictScriptPath) ||
+    !fs.existsSync(localFoodModelPath) ||
+    !fs.existsSync(localFoodClassesPath) ||
+    !fs.existsSync(localFoodNutritionPath)
+  ) {
+    throw new Error('Local food model files are missing.');
+  }
+
+  const pythonPreference = String(process.env.FOOD_MODEL_PYTHON_BIN || '').trim();
+  const pythonCandidates = pythonPreference ? [pythonPreference] : ['python', 'py'];
+  const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'oath-food-'));
+  const inputImagePath = path.join(tempDir, `scan-${Date.now()}.${decoded.extension}`);
+  await fs.promises.writeFile(inputImagePath, decoded.buffer);
+
+  let lastError = null;
+  try {
+    for (const candidate of pythonCandidates) {
+      const args = candidate === 'py'
+        ? [
+            '-3',
+            localFoodPredictScriptPath,
+            '--image',
+            inputImagePath,
+            '--model',
+            localFoodModelPath,
+            '--classes',
+            localFoodClassesPath,
+            '--nutrition',
+            localFoodNutritionPath,
+          ]
+        : [
+            localFoodPredictScriptPath,
+            '--image',
+            inputImagePath,
+            '--model',
+            localFoodModelPath,
+            '--classes',
+            localFoodClassesPath,
+            '--nutrition',
+            localFoodNutritionPath,
+          ];
+
+      try {
+        const { stdout, stderr } = await execFile(candidate, args, {
+          cwd: foodDatasetDir,
+          timeout: 120000,
+          maxBuffer: 1024 * 1024 * 4,
+        });
+
+        const output = String(stdout || '').trim();
+        let parsed = safeJsonParse(output);
+        if (!parsed || typeof parsed !== 'object') {
+          try {
+            parsed = extractJsonObject(output);
+          } catch {
+            parsed = null;
+          }
+        }
+        if (!parsed || typeof parsed !== 'object') {
+          throw new Error(`Invalid local model output: ${output.slice(0, 200) || stderr || 'empty output'}`);
+        }
+        return normalizeFoodScanPayload({
+          ...parsed,
+          imageName: fileName,
+        });
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+    throw new Error('Python runtime for local model was not found.');
+  } finally {
+    await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+};
+
 app.post('/api/ai/scan-food', async (request, response) => {
   const imageDataUrl = String(request.body?.imageDataUrl || '').trim();
   const fileName = String(request.body?.fileName || '').trim();
   const attempt = Number(request.body?.attempt || 0);
+  const modelPreference = normalizeFoodRecognitionModel(request.body?.modelPreference, 'groq');
 
   if (!imageDataUrl.startsWith('data:image/')) {
     return response.status(400).json({ message: 'A valid image is required.' });
@@ -2953,8 +4379,80 @@ app.post('/api/ai/scan-food', async (request, response) => {
 
   refreshEnv();
 
+  if (modelPreference === 'custom') {
+    try {
+      const localResult = await runLocalFoodPrediction({
+        imageDataUrl,
+        fileName,
+      });
+
+      return response.json({
+        ...localResult,
+        source: 'custom',
+      });
+    } catch (localError) {
+      const customUrl = String(process.env.CUSTOM_FOOD_MODEL_URL || '').trim();
+      if (!customUrl) {
+        console.error('Local custom food model failed', localError);
+        return response.status(503).json({
+          source: 'custom-error',
+          message: 'Custom food model is not configured correctly.',
+          detail:
+            localError instanceof Error
+              ? localError.message
+              : 'Local model failed. Install Python + TensorFlow and verify model files in food_dataset.',
+        });
+      }
+
+      try {
+        const headers = {
+          'Content-Type': 'application/json',
+        };
+        const customApiKey = String(process.env.CUSTOM_FOOD_MODEL_API_KEY || '').trim();
+        const customAuthHeader = String(process.env.CUSTOM_FOOD_MODEL_AUTH_HEADER || 'Authorization').trim();
+        if (customApiKey) {
+          headers[customAuthHeader] = customAuthHeader.toLowerCase() === 'authorization' ? `Bearer ${customApiKey}` : customApiKey;
+        }
+
+        const customResponse = await fetch(customUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            imageDataUrl,
+            fileName,
+            attempt,
+          }),
+        });
+
+        if (!customResponse.ok) {
+          const errorText = await customResponse.text();
+          throw new Error(errorText || 'Custom model request failed.');
+        }
+
+        const customData = await customResponse.json();
+        const parsed =
+          customData && typeof customData === 'object' && customData.result && typeof customData.result === 'object'
+            ? customData.result
+            : customData;
+        const normalized = normalizeFoodScanPayload(parsed || {});
+
+        return response.json({
+          ...normalized,
+          source: 'custom',
+        });
+      } catch (remoteError) {
+        console.error('Custom food model request failed', remoteError);
+        return response.status(502).json({
+          source: 'custom-error',
+          message: 'Custom model food scan failed.',
+          detail: remoteError instanceof Error ? remoteError.message : 'Unknown custom model error.',
+        });
+      }
+    }
+  }
+
   if (!isGroqConfigured()) {
-    return response.status(503).json({ message: 'Groq is not configured.' });
+    return response.status(503).json({ source: 'groq-error', message: 'Groq is not configured.' });
   }
 
   try {
@@ -3018,57 +4516,10 @@ app.post('/api/ai/scan-food', async (request, response) => {
     }
 
     const parsed = extractJsonObject(outputText);
-    const safeName = String(parsed.name || 'Detected Meal').trim();
-
-    const readKey = (obj, keys) => {
-      for (const key of keys) {
-        if (obj && obj[key] !== undefined && obj[key] !== null && String(obj[key]).trim() !== '') {
-          return obj[key];
-        }
-      }
-      return undefined;
-    };
-
-    const toNumber = (value) => {
-      if (typeof value === 'number') {
-        return Number.isFinite(value) ? value : 0;
-      }
-
-      if (typeof value === 'string') {
-        const match = value.match(/-?\d+(\.\d+)?/);
-        if (!match) return 0;
-        const num = Number(match[0]);
-        return Number.isFinite(num) ? num : 0;
-      }
-
-      const num = Number(value);
-      return Number.isFinite(num) ? num : 0;
-    };
-
-    const round1 = (value) => Math.round(value * 10) / 10;
-
-    const safeCalories = Math.max(
-      1,
-      Math.round(toNumber(readKey(parsed, ['calories', 'caloriesKcal', 'kcal', 'energyKcal'])) || 250),
-    );
-    const safeProteinG = round1(Math.max(0, toNumber(readKey(parsed, ['proteinG', 'protein_g', 'protein']))));
-    const safeCarbsG = round1(Math.max(0, toNumber(readKey(parsed, ['carbsG', 'carbs_g', 'carbs']))));
-    const safeFatG = round1(Math.max(0, toNumber(readKey(parsed, ['fatG', 'fat_g', 'fat']))));
-    const safeSugarG = round1(Math.max(0, toNumber(readKey(parsed, ['sugarG', 'sugar_g', 'sugar']))));
-    const safeFiberG = round1(Math.max(0, toNumber(readKey(parsed, ['fiberG', 'fiber_g', 'fiber']))));
-    const safeSodiumMg = Math.round(Math.max(0, toNumber(readKey(parsed, ['sodiumMg', 'sodium_mg', 'sodium']))));
-    const safeConfidence = Math.max(0, Math.min(1, toNumber(readKey(parsed, ['confidence', 'score'])) || 0.7));
+    const normalized = normalizeFoodScanPayload(parsed || {});
 
     return response.json({
-      name: safeName,
-      calories: safeCalories,
-      proteinG: safeProteinG,
-      carbsG: safeCarbsG,
-      fatG: safeFatG,
-      sugarG: safeSugarG,
-      fiberG: safeFiberG,
-      sodiumMg: safeSodiumMg,
-      confidence: safeConfidence,
+      ...normalized,
       source: 'groq',
     });
   } catch (error) {
@@ -3123,13 +4574,13 @@ const runTaskReminderJob = async () => {
   refreshEnv();
 
   const provider = getEmailProvider();
-  if (provider === 'none') {
-    return;
-  }
+  const canSendEmail = provider !== 'none';
+  const canSendPush = ensureWebPushConfigured();
 
   const today = toDateKey();
   const store = await readStore();
-  const transporter = provider === 'gmail' ? createTransporter(provider) : null;
+  const transporter = canSendEmail && provider === 'gmail' ? createTransporter(provider) : null;
+  const pushWindowDate = getZonedClock().dateKey;
 
   const candidateUserIds = new Set([
     ...Object.keys(store.users || {}),
@@ -3141,18 +4592,9 @@ const runTaskReminderJob = async () => {
   for (const userId of candidateUserIds) {
     const user = store.users?.[userId] ?? null;
     const email = user?.email || store.profiles?.[userId]?.identifier || null;
+    const reminderSettingsAll = normalizeNotificationSettings(store.reminders?.[userId]?.notifications);
 
-    if (!email || !String(email).includes('@')) {
-      continue;
-    }
-
-    const reminderSettings = getTaskReminderSettings(store, userId);
-    if (!reminderSettings.enabled || !hasReachedReminderTime(reminderSettings.time)) {
-      continue;
-    }
-
-    const lastSentDate = store.reminders?.[userId]?.lastSentDate || '';
-    if (lastSentDate === today) {
+    if (!canSendPush && (!canSendEmail || !email || !String(email).includes('@'))) {
       continue;
     }
 
@@ -3170,28 +4612,122 @@ const runTaskReminderJob = async () => {
     const recipientName =
       store.profiles?.[userId]?.name || user?.name || String(email).split('@')[0];
 
-    try {
-      await sendTaskReminderEmail({
-        identifier: email,
-        name: recipientName,
-        tasks: pending,
-        goalStatus,
-        transporter,
-      });
+    if (canSendPush) {
+      const subscriptions = getUserPushSubscriptions(store, userId);
+      if (subscriptions.length) {
+        for (const reminder of reminderSettingsAll) {
+          if (!reminder.enabled || !hasReachedReminderTime(reminder.time)) continue;
+          const reminderKey = `${pushWindowDate}-${reminder.id}`;
+          const pushSentMap = store.reminders?.[userId]?.pushSentMap || {};
+          if (pushSentMap[reminderKey]) continue;
 
-      await updateStore((storeUpdate) => {
-        storeUpdate.reminders[userId] = {
-          ...(storeUpdate.reminders?.[userId] && typeof storeUpdate.reminders[userId] === 'object'
-            ? storeUpdate.reminders[userId]
-            : {}),
-          lastSentDate: today,
-          lastSentAt: new Date().toISOString(),
-          pendingCount: pending.length,
-          goalRemaining: goalStatus?.hasMissing ? goalStatus : null,
-        };
-      });
-    } catch (error) {
-      console.error('Failed to send task reminder email', error);
+          const isWakeMissing = reminder.id !== 'wake' || !String(dailyLog?.wakeUpTime || '').trim();
+          const studyMissing =
+            reminder.id !== 'study' ||
+            !profileTargets ||
+            Math.max(0, (profileTargets.studyHours || 0) * 60 - Number(dailyLog?.studyMinutes || 0)) > 0;
+          const waterMissing =
+            reminder.id !== 'water' ||
+            !profileTargets ||
+            Math.max(0, Number(profileTargets.waterLiters || 0) - Number(dailyLog?.waterIntakeMl || 0) / 1000) > 0.05;
+          const workoutChecklist = Array.isArray(profileTargets?.workoutPlan?.dailyChecklist)
+            ? profileTargets.workoutPlan.dailyChecklist
+            : [];
+          const completedWorkout = new Set(Array.isArray(dailyLog?.completedWorkoutTasks) ? dailyLog.completedWorkoutTasks : []);
+          const workoutMissing =
+            reminder.id !== 'workout' ||
+            workoutChecklist.some((task) => task?.id && !completedWorkout.has(task.id));
+          const tasksMissing = reminder.id !== 'tasks' || pending.length > 0 || Boolean(goalStatus?.hasMissing);
+
+          if (!isWakeMissing || !studyMissing || !waterMissing || !workoutMissing || !tasksMissing) {
+            continue;
+          }
+
+          const payload = JSON.stringify(
+            buildPushReminderPayload({
+              reminderId: reminder.id,
+              pendingCount: pending.length,
+              goalStatus,
+            }),
+          );
+
+          const failedEndpoints = new Set();
+          await Promise.all(
+            subscriptions.map(async (subscription) => {
+              try {
+                await webpush.sendNotification(subscription, payload);
+              } catch (error) {
+                const statusCode = Number(error?.statusCode || 0);
+                if (statusCode === 404 || statusCode === 410) {
+                  failedEndpoints.add(subscription.endpoint);
+                } else {
+                  console.error('Web push send failed', error);
+                }
+              }
+            }),
+          );
+
+          await updateStore((storeUpdate) => {
+            const reminderBucket =
+              storeUpdate.reminders?.[userId] && typeof storeUpdate.reminders[userId] === 'object'
+                ? storeUpdate.reminders[userId]
+                : {};
+            const nextPushSentMap =
+              reminderBucket.pushSentMap && typeof reminderBucket.pushSentMap === 'object'
+                ? { ...reminderBucket.pushSentMap }
+                : {};
+            nextPushSentMap[reminderKey] = new Date().toISOString();
+            storeUpdate.reminders[userId] = {
+              ...reminderBucket,
+              pushSentMap: nextPushSentMap,
+              updatedAt: new Date().toISOString(),
+            };
+
+            if (failedEndpoints.size) {
+              storeUpdate.pushSubscriptions[userId] = getUserPushSubscriptions(storeUpdate, userId).filter(
+                (entry) => !failedEndpoints.has(entry.endpoint),
+              );
+            }
+          });
+        }
+      }
+    }
+
+    const reminderSettings = getTaskReminderSettings(store, userId);
+    const lastSentDate = store.reminders?.[userId]?.lastSentDate || '';
+    const canSendTaskEmail =
+      canSendEmail &&
+      email &&
+      String(email).includes('@') &&
+      reminderSettings.enabled &&
+      hasReachedReminderTime(reminderSettings.time) &&
+      lastSentDate !== today &&
+      (pending.length > 0 || goalStatus?.hasMissing);
+
+    if (canSendTaskEmail) {
+      try {
+        await sendTaskReminderEmail({
+          identifier: email,
+          name: recipientName,
+          tasks: pending,
+          goalStatus,
+          transporter,
+        });
+
+        await updateStore((storeUpdate) => {
+          storeUpdate.reminders[userId] = {
+            ...(storeUpdate.reminders?.[userId] && typeof storeUpdate.reminders[userId] === 'object'
+              ? storeUpdate.reminders[userId]
+              : {}),
+            lastSentDate: today,
+            lastSentAt: new Date().toISOString(),
+            pendingCount: pending.length,
+            goalRemaining: goalStatus?.hasMissing ? goalStatus : null,
+          };
+        });
+      } catch (error) {
+        console.error('Failed to send task reminder email', error);
+      }
     }
   }
 };
@@ -3199,6 +4735,7 @@ const runTaskReminderJob = async () => {
 const scheduleTaskReminders = () => {
   const enabled = String(process.env.ENABLE_TASK_REMINDERS || 'true').trim().toLowerCase() !== 'false';
   if (!enabled) return;
+  if (getEmailProvider() === 'none' && !isWebPushConfigured()) return;
 
   const cronExpression = String(process.env.TASK_REMINDER_CRON || '*/1 * * * *').trim();
   const timeZone = getReminderTimeZone();

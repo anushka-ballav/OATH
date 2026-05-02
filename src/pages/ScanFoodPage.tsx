@@ -12,7 +12,7 @@ import {
 import { FoodEntry } from '../types';
 
 export const ScanFoodPage = () => {
-  const { currentLog, addFoodEntry, removeFoodEntry, profile } = useApp();
+  const { currentLog, addFoodEntry, removeFoodEntry, profile, setFoodRecognitionModel } = useApp();
   const [preview, setPreview] = useState<string | null>(null);
   const [status, setStatus] = useState('Upload a meal photo to estimate calories.');
   const [loading, setLoading] = useState(false);
@@ -21,6 +21,7 @@ export const ScanFoodPage = () => {
   const [retryCount, setRetryCount] = useState(0);
   const [manualName, setManualName] = useState('');
   const [manualCalories, setManualCalories] = useState('');
+  const [modelSwitching, setModelSwitching] = useState(false);
 
   const formatG = (value?: number) => {
     if (value === undefined || value === null || !Number.isFinite(value)) return '—';
@@ -65,10 +66,13 @@ export const ScanFoodPage = () => {
     setStatus('Analyzing image...');
 
     try {
-      const entry = await analyzeFoodImage(file, attempt);
+      const selectedModel = profile?.foodRecognitionModel === 'custom' ? 'custom' : 'groq';
+      const entry = await analyzeFoodImage(file, attempt, selectedModel);
       setPendingEntry(entry);
       setStatus(
-        `Guess: ${entry.name} - ${entry.calories} kcal. Tap Done if correct, or Retry if the guess is wrong.${entry.source === 'groq' ? ' Powered by Groq AI image analysis.' : ''}`,
+        `Guess: ${entry.name} - ${entry.calories} kcal. Tap Done if correct, or Retry if the guess is wrong.${
+          entry.source === 'groq' ? ' Powered by Groq AI image analysis.' : entry.source === 'mock' ? '' : ' Powered by your custom model.'
+        }`,
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Unable to analyze food image.');
@@ -142,6 +146,25 @@ export const ScanFoodPage = () => {
     setManualCalories('');
   };
 
+  const selectedModel = profile?.foodRecognitionModel === 'custom' ? 'custom' : 'groq';
+
+  const handleModelSelect = async (nextModel: 'groq' | 'custom') => {
+    if (!profile) return;
+    if (selectedModel === nextModel) return;
+
+    setModelSwitching(true);
+    try {
+      await setFoodRecognitionModel(nextModel);
+      setStatus(
+        nextModel === 'custom'
+          ? 'Custom model selected. Next scan will use your trained model.'
+          : 'Groq model selected. Next scan will use Groq AI.',
+      );
+    } finally {
+      setModelSwitching(false);
+    }
+  };
+
   return (
     <div className="space-y-5 pb-28 sm:pb-24">
       <header className="glass rounded-[32px] border border-blue-100 p-5 shadow-card">
@@ -150,6 +173,32 @@ export const ScanFoodPage = () => {
         <p className="muted-text mt-2 text-sm">
           Review the guess before it is added. If the result is wrong, retry once and then use manual entry.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void handleModelSelect('groq')}
+            disabled={modelSwitching}
+            className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition ${
+              selectedModel === 'groq'
+                ? 'bg-blue-100 text-black dark:bg-orange-500/20 dark:text-orange-50'
+                : 'border border-blue-200 bg-white text-black dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-100'
+            }`}
+          >
+            Groq Model
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleModelSelect('custom')}
+            disabled={modelSwitching}
+            className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition ${
+              selectedModel === 'custom'
+                ? 'bg-blue-100 text-black dark:bg-orange-500/20 dark:text-orange-50'
+                : 'border border-blue-200 bg-white text-black dark:border-orange-400/25 dark:bg-[#17110b] dark:text-orange-100'
+            }`}
+          >
+            Custom Model
+          </button>
+        </div>
       </header>
 
       <CardShell>

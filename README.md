@@ -1,28 +1,29 @@
-# Discipline AI Tracker
+# Discipline AI Tracker (OATH)
 
-A mobile-friendly React + Tailwind application for tracking wake-up routines, study time, hydration, calories, and food scans with Firebase-ready persistence plus local fallbacks.
+Mobile-first discipline tracker for workouts, study, hydration, wake-up routine, calories, BMI, tasks, and AI guidance.
 
-## Features
+## Key features
 
-- Email OTP login through Brevo API (or Resend/Gmail) plus safe demo fallback
+- Email OTP login (Brevo / Resend / Gmail) with demo fallback
 - First-time onboarding with generated daily targets
-- Home dashboard with cards, streak counter, and weekly chart
-- Wake-up logging, study timer, water tracker, calories burned input
-- BMI calculator with saved BMI history per user
-- Daily task tracker with an 8 PM reminder email for incomplete tasks
-- Food recognition flow with Groq vision support, Spoonacular fallback, and manual correction
-- AI companion powered by Groq with a safe local fallback
-- Progress page with Daily / Weekly / Monthly charts + streak history
-- Profile editing, dark mode, notifications toggle, and reset option
+- Daily workout + study + water + wake-up tracking
+- AI companion (Groq) + food scan (Groq Vision / Spoonacular fallback)
+- Gym Mode with equipment onboarding + weekly split generation
+- Admin panel with secure JWT login + user analytics
+- Progress analytics (daily / weekly / monthly) with streak insights
+- BMI history + task system + reminder notifications
+- Firestore real-time sync across devices (same account)
+- In-app connection indicator: `Live Sync Connected`
 
-## Tech Stack
+## Tech stack
 
-- React + TypeScript + Vite
+- React 19 + TypeScript + Vite
 - Tailwind CSS
-- Firebase-ready Auth + Firestore setup
-- Recharts for graphs
+- Firebase Firestore
+- Express OTP/reminder server
+- Recharts
 
-## Run locally
+## Quick start
 
 1. Install dependencies:
 
@@ -30,88 +31,248 @@ A mobile-friendly React + Tailwind application for tracking wake-up routines, st
 npm install
 ```
 
-2. Copy environment values if you want Firebase, Groq AI, Spoonacular, or real email OTP enabled:
+2. Create env file:
 
 ```bash
 cp .env.example .env
 ```
 
-3. For Brevo OTP, add your Brevo API credentials to `.env`:
+3. Start app + server:
+
+```bash
+npm run dev
+```
+
+4. Open the Vite URL shown in terminal (usually `http://localhost:5173`).
+
+## Required environment setup
+
+### Firebase (for cross-device real-time sync)
+
+Set these in `.env`:
+
+```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+```
+
+Then in Firebase Console:
+
+1. Create/select project
+2. Enable **Cloud Firestore**
+3. Register web app and copy config values
+4. Ensure app points to the same `VITE_FIREBASE_PROJECT_ID`
+
+Firestore collections used by this app:
+
+- `users`
+- `dailyLogs`
+- `userSnapshots`
+- `leaderboard`
+
+### Email OTP provider (choose one)
+
+**Brevo**
 
 ```env
 EMAIL_PROVIDER=brevo
-BREVO_API_KEY=your-brevo-api-key
-BREVO_FROM=OATH <your-verified-sender@yourdomain.com>
+BREVO_API_KEY=
+BREVO_FROM=OATH <verified@domain.com>
 BREVO_BASE_URL=https://api.brevo.com/v3
 ```
 
-4. If you prefer Resend instead, add:
+**Resend**
 
 ```env
 EMAIL_PROVIDER=resend
-RESEND_API_KEY=your-resend-api-key
-RESEND_FROM=OATH <your-verified-sender@yourdomain.com>
+RESEND_API_KEY=
+RESEND_FROM=OATH <verified@domain.com>
 ```
 
-5. For Gmail-based sending during local development, add:
+**Gmail**
 
 ```env
 EMAIL_PROVIDER=gmail
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_app_password
-EMAIL_FROM=OATH <your_email@gmail.com>
+EMAIL_USER=you@gmail.com
+EMAIL_PASS=app_password
+EMAIL_FROM=OATH <you@gmail.com>
 ```
 
-6. If you want the hosted app to stay usable without a live email provider, enable demo OTP fallback:
+**Demo fallback**
 
 ```env
-EMAIL_PROVIDER=demo
 ALLOW_DEMO_OTP=true
 ```
 
-7. Task reminder emails run daily at 8 PM by default (time zone is configurable):
+### Groq (optional but recommended)
+
+```env
+GROQ_API_KEY=
+GROQ_MODEL=openai/gpt-oss-20b
+GROQ_VISION_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
+```
+
+Groq is also used by Gym Mode plan generation when available. If not configured, the app falls back to rule-based gym plan logic.
+
+### Custom food model (optional)
+
+If you have your own trained food-recognition model, configure:
+
+```env
+FOOD_MODEL_PYTHON_BIN=python
+CUSTOM_FOOD_MODEL_URL=
+CUSTOM_FOOD_MODEL_API_KEY=
+CUSTOM_FOOD_MODEL_AUTH_HEADER=Authorization
+```
+
+When `Custom Model` is selected in Food Scan:
+- The server first tries local inference using `food_dataset/predict.py`, `food_dataset/food_model.h5`, `food_dataset/classes.json`, and `food_dataset/nutrition.csv`.
+- If local inference fails and `CUSTOM_FOOD_MODEL_URL` is set, it falls back to that remote endpoint.
+
+The app user can choose `Groq Model` or `Custom Model` from the Food Scan page.
+
+### Python dependencies for custom model
+
+Install once for local development:
+
+```bash
+pip install -r food_dataset/requirements.txt
+```
+
+### Admin credentials (required for Admin Panel)
+
+```env
+ADMIN_ID=admin
+ADMIN_PASSWORD=change-this-password
+ADMIN_JWT_SECRET=change-this-jwt-secret
+```
+
+### Reminder scheduling
 
 ```env
 ENABLE_TASK_REMINDERS=true
 TASK_REMINDER_CRON=0 20 * * *
 TASK_REMINDER_TIMEZONE=Asia/Kolkata
 APP_URL=http://localhost:5173
+OTP_SERVER_PORT=8787
 ```
 
-8. Add your Groq key if you want AI companion and AI food scanning:
+### Background push notifications (for reminders when app is closed)
 
 ```env
-GROQ_API_KEY=your-groq-api-key
-GROQ_MODEL=openai/gpt-oss-20b
-GROQ_VISION_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
+WEB_PUSH_PUBLIC_KEY=
+WEB_PUSH_PRIVATE_KEY=
+WEB_PUSH_SUBJECT=mailto:support@oath.app
 ```
 
-9. Start the app:
+Generate VAPID keys once:
 
 ```bash
-npm run dev
+npx web-push generate-vapid-keys
 ```
 
-10. Open the local Vite URL shown in the terminal.
+## Scripts
 
-## Notes
+- `npm run dev` - run client + server together
+- `npm run dev:client` - run Vite client
+- `npm run dev:server` - run Express server with watch mode
+- `npm run build` - production build
+- `npm run start` - run server in production mode
 
-- `npm run dev` starts both the React client and the OTP email server.
-- Email provider selection:
-  - Set `EMAIL_PROVIDER=brevo` to force Brevo.
-  - Set `EMAIL_PROVIDER=resend` to force Resend.
-  - Set `EMAIL_PROVIDER=gmail` to force Gmail.
-  - If not set, the server prefers Brevo, then Resend, then Gmail.
-- The app works without Firebase and without Spoonacular.
-- If Groq is not configured or unavailable, AI companion falls back locally and food scan falls back to Spoonacular/mock/manual entry.
-- Set `ALLOW_DEMO_OTP=true` if you want hosted deployments like Render to show a demo OTP on-screen when email is not configured or temporarily fails.
-- Leaving `EMAIL_PROVIDER` unset is safest on Render because the server can auto-detect Brevo, Resend, or Gmail from whichever credentials you actually provide.
-- Firebase config enables the Firestore sync layer.
-- Browser notifications are simulated with the Notification API when permission is granted.
+## Docker deployment (Custom Model ready)
 
-## Data storage
+This repo now includes a production `Dockerfile` that packages:
+- Vite build output (`dist`)
+- Express server
+- Python 3 + TensorFlow CPU runtime
+- `food_dataset` model files (`food_model.h5`, `classes.json`, `nutrition.csv`, `predict.py`)
 
-- Tasks + BMI history are stored server-side in `server/data/store.json` by default.
-- On cloud hosts, use a persistent disk if you want to keep tasks/BMI between deploys.
-"# OATH-FINAL" 
-"# OATH-FINAL" 
+### Build locally
+
+```bash
+docker build -t oath-app .
+```
+
+### Run locally
+
+```bash
+docker run --rm -p 10000:10000 --env-file .env oath-app
+```
+
+Open `http://localhost:10000`.
+
+## Render deploy (Docker)
+
+`render.yaml` is configured for Docker runtime and points to `./Dockerfile`.
+
+1. Push this repo to GitHub.
+2. In Render, create service from `render.yaml` (Blueprint) or connect repo manually.
+3. Set all required environment variables (Firebase, email provider, Groq, admin credentials).
+4. Set `WEB_PUSH_PUBLIC_KEY` and `WEB_PUSH_PRIVATE_KEY`.
+5. Keep `FOOD_MODEL_PYTHON_BIN=python3`.
+6. Deploy.
+
+After deploy, selecting `Custom Model` in Food Scan uses your trained model inside the container.
+
+## Mobile reliability improvements included
+
+- Login persistence fallback now stores session in cookie + local storage.
+- App requests persistent storage where the browser supports it.
+- Profile includes a direct `Install app` PWA action.
+- Notification enable flow also registers background web push for this device.
+
+## Real-time sync notes
+
+- Sync works when Firebase env vars are configured and user is signed in.
+- Home shell shows sync status badge:
+  - `Live Sync Connected`
+  - `Live Sync Connecting`
+- If Firestore Data tab is empty, verify:
+  - You are on **Firestore** (not Realtime Database)
+  - Project ID in `.env` matches Firebase console project
+  - You performed at least one app action after login
+
+Gym mode data synced in profile:
+
+- `gymModeEnabled`
+- `gymEquipment`
+- `gymOtherEquipment`
+- `gymPlan`
+- `gymBaseWorkoutPlan`
+
+## New APIs
+
+### Gym Mode
+
+- `POST /api/gym/generate-plan`
+  - Body: `userId`, `identifier`, `equipment[]`, `otherEquipment`
+  - Returns generated weekly split + today workout projection
+- `GET /api/gym/plan?userId=...&identifier=...`
+  - Returns current gym plan + today workout projection
+- `POST /api/gym/progress`
+  - Body: `userId`, `identifier`, `day`, `completed`
+  - Marks/unmarks a day and updates gym streak
+
+### Admin Panel
+
+- `POST /api/admin/login`
+  - Body: `adminId`, `password`
+  - Returns JWT token
+- `GET /api/admin/users` (Bearer token required)
+  - Returns user list + summary metrics
+- `GET /api/admin/user/:userId` (Bearer token required)
+  - Returns detailed profile/log/task/BMI/gym data for one user
+- `DELETE /api/admin/user/:userId` (Bearer token required)
+  - Deletes a user and associated data
+
+## Data storage behavior
+
+- Local fallback/cache: browser local storage
+- Firestore: cross-device real-time state and logs
+- Server JSON store: `server/data/store.json` (tasks/BMI APIs and fallback persistence)
+
+For cloud deployment, attach persistent disk for `server/data/store.json` if you rely on server-side JSON persistence.

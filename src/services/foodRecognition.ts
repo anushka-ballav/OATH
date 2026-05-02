@@ -213,7 +213,11 @@ const buildMockFood = (file: File, attempt: number) => {
   });
 };
 
-export const analyzeFoodImage = async (file: File, attempt = 0): Promise<FoodEntry> => {
+export const analyzeFoodImage = async (
+  file: File,
+  attempt = 0,
+  modelPreference: 'groq' | 'custom' = 'groq',
+): Promise<FoodEntry> => {
   try {
     const imageDataUrl = await fileToDataUrl(file);
     const response = await fetch('/api/ai/scan-food', {
@@ -225,6 +229,7 @@ export const analyzeFoodImage = async (file: File, attempt = 0): Promise<FoodEnt
         imageDataUrl,
         fileName: file.name,
         attempt,
+        modelPreference,
       }),
     });
 
@@ -263,12 +268,15 @@ export const analyzeFoodImage = async (file: File, attempt = 0): Promise<FoodEnt
     }
 
     const errorData = (await response.json()) as { message?: string; detail?: string; source?: string };
-    if (errorData.source === 'groq-error') {
-      throw new Error(`AI scan error: ${errorData.detail || errorData.message || 'Groq food scan failed.'}`);
+    if (errorData.source === 'groq-error' || errorData.source === 'custom-error') {
+      throw new Error(`AI scan error: ${errorData.detail || errorData.message || 'Food scan AI failed.'}`);
     }
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('AI scan error:')) {
       throw error;
+    }
+    if (modelPreference === 'custom') {
+      throw new Error('Custom model is unavailable right now. Please try again or switch to Groq.');
     }
     // Continue below for non-AI/server failures only.
   }

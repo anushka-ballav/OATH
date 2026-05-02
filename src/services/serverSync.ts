@@ -23,6 +23,7 @@ export const syncProfileToServer = async (
     userId: session.userId,
     identifier: session.identifier,
     name: profile.name,
+    phoneNumber: profile.phoneNumber,
     gender: profile.gender,
     age: profile.age,
     height: profile.height,
@@ -32,6 +33,12 @@ export const syncProfileToServer = async (
     dailyStudyHours: profile.dailyStudyHours,
     dailyWorkoutMinutes: profile.dailyWorkoutMinutes,
     dailyTargets: profile.dailyTargets,
+    gymModeEnabled: profile.gymModeEnabled,
+    gymEquipment: profile.gymEquipment,
+    gymOtherEquipment: profile.gymOtherEquipment,
+    gymPlan: profile.gymPlan,
+    gymBaseWorkoutPlan: profile.gymBaseWorkoutPlan,
+    foodRecognitionModel: profile.foodRecognitionModel,
     notifications,
   });
 };

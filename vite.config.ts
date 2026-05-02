@@ -11,6 +11,11 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon.svg'],
+      workbox: {
+        importScripts: ['/sw-push.js'],
+        cleanupOutdatedCaches: true,
+        navigateFallbackDenylist: [/^\/api\//],
+      },
       manifest: {
         name: 'OATH',
         short_name: 'OATH',
@@ -18,6 +23,7 @@ export default defineConfig({
         start_url: '/',
         scope: '/',
         display: 'standalone',
+        display_override: ['standalone', 'window-controls-overlay', 'minimal-ui'],
         background_color: '#050505',
         theme_color: '#f97316',
         icons: [

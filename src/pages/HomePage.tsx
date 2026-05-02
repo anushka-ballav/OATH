@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlarmClock, Bell, BookOpenText, Brain, Flame, MoonStar, Droplets, Sparkles, SunMedium } from 'lucide-react';
+import { AlarmClock, Bell, BookOpenText, Brain, Dumbbell, Flame, MoonStar, Droplets, Sparkles, SunMedium } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { getLastSevenDays } from '../lib/date';
 import { CardShell } from '../components/CardShell';
@@ -12,6 +12,8 @@ import { WorkoutPlanCard } from '../components/WorkoutPlanCard';
 import { NutritionSummaryCard } from '../components/NutritionSummaryCard';
 import { BMICard } from '../components/BMICard';
 import { TasksCard } from '../components/TasksCard';
+import { GymModeSetupModal } from '../components/GymModeSetupModal';
+import { GymWeeklyPlanCard } from '../components/GymWeeklyPlanCard';
 import { CoachingRecommendation, generateCoachingRecommendations } from '../lib/coachingEngine';
 import { percent } from '../lib/utils';
 import { requestNotificationPermission, sendLocalNotification } from '../services/notifications';
@@ -122,16 +124,68 @@ export const HomePage = () => {
     deleteTask,
     recordBmi,
     toggleDarkMode,
+    toggleGymMode,
+    setupGymMode,
+    markGymPlanDayCompleted,
     darkMode,
   } = useApp();
 
   const [caloriesBurned, setCaloriesBurnedInput] = useState(0);
   const [notificationMessage, setNotificationMessage] = useState('');
+  const [showGymSetupModal, setShowGymSetupModal] = useState(false);
+  const [gymSetupLoading, setGymSetupLoading] = useState(false);
+  const [gymToggleLoading, setGymToggleLoading] = useState(false);
+  const [gymStatusMessage, setGymStatusMessage] = useState('');
 
   const handleNotificationEnable = async () => {
     const result = await requestNotificationPermission();
     setNotificationMessage(result.message);
     window.setTimeout(() => setNotificationMessage(''), 2600);
+  };
+
+  const handleGymModeToggle = async () => {
+    if (!profile) return;
+    setGymToggleLoading(true);
+
+    try {
+      if (profile.gymModeEnabled) {
+        await toggleGymMode(false);
+        setGymStatusMessage('Gym mode is off. Daily workout is back to standard mode.');
+        sendLocalNotification('Gym mode disabled', 'Daily workout is switched back to standard plan.', 'generic');
+        return;
+      }
+
+      if (Array.isArray(profile.gymEquipment) && profile.gymEquipment.length) {
+        await toggleGymMode(true);
+        setGymStatusMessage('Gym mode is on. Your workout now follows the weekly split.');
+        sendLocalNotification('Gym mode enabled', 'Your daily workout now follows your gym split.', 'success');
+        return;
+      }
+
+      setShowGymSetupModal(true);
+    } catch (error) {
+      sendLocalNotification(
+        'Unable to switch gym mode',
+        error instanceof Error ? error.message : 'Please try again.',
+        'generic',
+      );
+      setGymStatusMessage(error instanceof Error ? error.message : 'Unable to switch gym mode right now.');
+    } finally {
+      setGymToggleLoading(false);
+    }
+  };
+
+  const handleGymSetupSubmit = async (equipment: string[], otherEquipment?: string) => {
+    setGymSetupLoading(true);
+
+    try {
+      await setupGymMode(equipment, otherEquipment);
+      setShowGymSetupModal(false);
+      setGymStatusMessage('Gym mode is ready with your equipment-based weekly split.');
+      sendLocalNotification('Gym plan ready', 'Your weekly split has been generated.', 'success');
+    } finally {
+      setGymSetupLoading(false);
+    }
   };
 
   const weeklyStudyData = useMemo(
@@ -203,6 +257,13 @@ export const HomePage = () => {
   return (
     <div className="page-enter space-y-5 pb-28 sm:pb-24">
       <header className="space-y-4">
+        <GymModeSetupModal
+          open={showGymSetupModal}
+          loading={gymSetupLoading}
+          onClose={() => setShowGymSetupModal(false)}
+          onSubmit={handleGymSetupSubmit}
+        />
+
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="mt-1 flex flex-wrap items-center gap-2 font-display text-2xl font-semibold uppercase tracking-[0.18em] sm:text-3xl">
@@ -219,6 +280,18 @@ export const HomePage = () => {
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => void handleGymModeToggle()}
+              disabled={gymToggleLoading}
+              className={`btn-glow soft-surface panel-hover inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] active:scale-[0.99] disabled:opacity-60 ${
+                profile.gymModeEnabled ? 'border border-emerald-300/45 bg-emerald-500/20 text-emerald-100' : ''
+              }`}
+              aria-label="Toggle gym mode"
+            >
+              <Dumbbell size={16} />
+              {profile.gymModeEnabled ? 'Gym Mode On' : 'Gym Mode'}
+            </button>
             <button
               type="button"
               onClick={() => void handleNotificationEnable()}
@@ -283,9 +356,33 @@ export const HomePage = () => {
             </CardShell>
           </div>
         </div>
+
+        {gymStatusMessage ? (
+          <p className="rounded-2xl border border-orange-300/30 bg-orange-500/10 px-4 py-2 text-sm text-orange-100/90">
+            {gymStatusMessage}
+          </p>
+        ) : null}
       </header>
 
-      <div style={enterDelay(120)}>
+      {profile.gymModeEnabled && profile.gymPlan ? (
+        <div style={enterDelay(110)}>
+          <GymWeeklyPlanCard
+            plan={profile.gymPlan}
+            onMarkDayCompleted={async (day, completed) => {
+              await markGymPlanDayCompleted(day, completed);
+              sendLocalNotification(
+                completed ? 'Gym day completed' : 'Gym day unmarked',
+                completed
+                  ? `${day} is now marked complete in your gym streak.`
+                  : `${day} completion is removed.`,
+                completed ? 'success' : 'generic',
+              );
+            }}
+          />
+        </div>
+      ) : null}
+
+      <div style={enterDelay(130)}>
         <CardShell className="relative overflow-hidden rounded-[28px] border border-orange-400/20 bg-transparent">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>

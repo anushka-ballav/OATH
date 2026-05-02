@@ -1,14 +1,15 @@
 services:
   - type: web
     name: okra
-    runtime: node
+    runtime: docker
     plan: free
-    buildCommand: npm ci && npm run build
-    startCommand: npm run start
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: FOOD_MODEL_PYTHON_BIN
+        value: python3
       - key: EMAIL_FROM
         sync: false
       - key: EMAIL_USER
@@ -39,6 +40,18 @@ services:
         value: openai/gpt-oss-20b
       - key: GROQ_VISION_MODEL
         value: meta-llama/llama-4-scout-17b-16e-instruct
+      - key: WEB_PUSH_PUBLIC_KEY
+        sync: false
+      - key: WEB_PUSH_PRIVATE_KEY
+        sync: false
+      - key: WEB_PUSH_SUBJECT
+        value: mailto:support@oath.app
+      - key: CUSTOM_FOOD_MODEL_URL
+        sync: false
+      - key: CUSTOM_FOOD_MODEL_API_KEY
+        sync: false
+      - key: CUSTOM_FOOD_MODEL_AUTH_HEADER
+        value: Authorization
       - key: VITE_FIREBASE_API_KEY
         sync: false
       - key: VITE_FIREBASE_AUTH_DOMAIN
