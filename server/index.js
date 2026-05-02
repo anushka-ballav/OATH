@@ -4297,7 +4297,12 @@ const runLocalFoodPrediction = async ({ imageDataUrl, fileName }) => {
   }
 
   const pythonPreference = String(process.env.FOOD_MODEL_PYTHON_BIN || '').trim();
-  const pythonCandidates = pythonPreference ? [pythonPreference] : ['python', 'py'];
+  const isWindowsRuntime = process.platform === 'win32';
+  const pythonCandidates = pythonPreference
+    ? [pythonPreference]
+    : isWindowsRuntime
+      ? ['python', 'py']
+      : ['python3', 'python'];
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'oath-food-'));
   const inputImagePath = path.join(tempDir, `scan-${Date.now()}.${decoded.extension}`);
   await fs.promises.writeFile(inputImagePath, decoded.buffer);
@@ -4359,6 +4364,12 @@ const runLocalFoodPrediction = async ({ imageDataUrl, fileName }) => {
     }
 
     if (lastError instanceof Error) {
+      const code = String(lastError?.code || '').trim().toUpperCase();
+      if (code === 'ENOENT') {
+        throw new Error(
+          'Python runtime not found for custom model. Set FOOD_MODEL_PYTHON_BIN (Render Docker: python3).',
+        );
+      }
       throw lastError;
     }
     throw new Error('Python runtime for local model was not found.');
