@@ -1,4 +1,4 @@
-# Discipline AI Tracker (OATH)
+# OATH - Smart Discipline and Fitness Tracking System
 
 Mobile-first discipline tracker for workouts, study, hydration, wake-up routine, calories, BMI, tasks, and AI guidance.
 
@@ -8,8 +8,11 @@ Mobile-first discipline tracker for workouts, study, hydration, wake-up routine,
 - First-time onboarding with generated daily targets
 - Daily workout + study + water + wake-up tracking
 - AI companion (Groq) + food scan (Groq Vision / Spoonacular fallback)
+<<<<<<< HEAD
 - Gym Mode with equipment onboarding + weekly split generation
 - Admin panel with secure JWT login + user analytics
+=======
+>>>>>>> 7ade9159b0a7e870779814dd17c8f0b01cc4cc1d
 - Progress analytics (daily / weekly / monthly) with streak insights
 - BMI history + task system + reminder notifications
 - Firestore real-time sync across devices (same account)
@@ -116,6 +119,7 @@ GROQ_MODEL=openai/gpt-oss-20b
 GROQ_VISION_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 ```
 
+<<<<<<< HEAD
 Groq is also used by Gym Mode plan generation when available. If not configured, the app falls back to rule-based gym plan logic.
 
 ### Custom food model (optional)
@@ -151,6 +155,8 @@ ADMIN_PASSWORD=change-this-password
 ADMIN_JWT_SECRET=change-this-jwt-secret
 ```
 
+=======
+>>>>>>> 7ade9159b0a7e870779814dd17c8f0b01cc4cc1d
 ### Reminder scheduling
 
 ```env
@@ -161,6 +167,7 @@ APP_URL=http://localhost:5173
 OTP_SERVER_PORT=8787
 ```
 
+<<<<<<< HEAD
 ### Background push notifications (for reminders when app is closed)
 
 ```env
@@ -275,4 +282,31 @@ Gym mode data synced in profile:
 - Firestore: cross-device real-time state and logs
 - Server JSON store: `server/data/store.json` (tasks/BMI APIs and fallback persistence)
 
+=======
+## Scripts
+
+- `npm run dev` - run client + server together
+- `npm run dev:client` - run Vite client
+- `npm run dev:server` - run Express server with watch mode
+- `npm run build` - production build
+- `npm run start` - run server in production mode
+
+## Real-time sync notes
+
+- Sync works when Firebase env vars are configured and user is signed in.
+- Home shell shows sync status badge:
+  - `Live Sync Connected`
+  - `Live Sync Connecting`
+- If Firestore Data tab is empty, verify:
+  - You are on **Firestore** (not Realtime Database)
+  - Project ID in `.env` matches Firebase console project
+  - You performed at least one app action after login
+
+## Data storage behavior
+
+- Local fallback/cache: browser local storage
+- Firestore: cross-device real-time state and logs
+- Server JSON store: `server/data/store.json` (tasks/BMI APIs and fallback persistence)
+
+>>>>>>> 7ade9159b0a7e870779814dd17c8f0b01cc4cc1d
 For cloud deployment, attach persistent disk for `server/data/store.json` if you rely on server-side JSON persistence.
